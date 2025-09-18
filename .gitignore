@@ -1,0 +1,96 @@
+# ===================== #
+# Python / Django       #
+# ===================== #
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Django specific
+*.log
+*.pot
+*.pyc
+*.sqlite3
+db.sqlite3
+media/
+staticfiles/
+static/
+
+# Migrations (keep if you want version control for schema)
+*/migrations/*.py
+*/migrations/*.pyc
+!*/migrations/__init__.py
+
+# ===================== #
+# Virtual Environment   #
+# ===================== #
+.venv/
+venv/
+ENV/
+env/
+pip-wheel-metadata/
+
+# ===================== #
+# Secrets / Config      #
+# ===================== #
+.env
+*.secret
+*.key
+*.pem
+
+# ===================== #
+# IDE / Editors         #
+# ===================== #
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===================== #
+# React / Frontend      #
+# ===================== #
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+coverage/
+build/
+.cache/
+.DS_Store
+
+# ===================== #
+# Deployment / CI/CD    #
+# ===================== #
+*.bak
+*.orig
+*.tmp
+*.log
+*.pid
+*.seed
+*.pid.lock
+*.cover
+.coverage
+htmlcov/
+*.pytest_cache/
+.pytest_cache/
+celerybeat-schedule
+celerybeat.pid
+
+# Gunicorn / Uvicorn
+gunicorn*
+uvicorn*
+
+# Docker (if using)
+*.tar
+*.log
+.dockerignore
+docker-compose.override.yml
