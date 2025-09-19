@@ -38,6 +38,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'authentication'
+    
 ]
 
 MIDDLEWARE = [
@@ -49,6 +53,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+AUTH_USER_MODEL = "authentication.User"
 
 ROOT_URLCONF = 'JetBot.urls'
 
@@ -70,6 +76,13 @@ TEMPLATES = [
 WSGI_APPLICATION = 'JetBot.wsgi.application'
 
 
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    )
+}
+
+
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
@@ -77,7 +90,7 @@ WSGI_APPLICATION = 'JetBot.wsgi.application'
 
 DATABASES = {
     'default': dj_database_url.parse(
-        "postgresql://jetbot:LJoOEVZscTcSNGUhidqLIH85HIwxRJtJ@dpg-d35op8emcj7s73a3mia0-a.oregon-postgres.render.com/jetbot"
+        "postgresql://jetbot:fTJTZWhsrBCKO3AurjBkyS58Dv3UJRsF@dpg-d35r9b8dl3ps739694sg-a.oregon-postgres.render.com/jetbot_20q0"
     )
 }
 
