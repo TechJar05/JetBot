@@ -1,43 +1,37 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from authentication.models import Interview, User
-from .serializers import InterviewSerializer
-from .services import process_jd_file
-from datetime import timedelta
+from rest_framework import status
+from django.utils import timezone
+from authentication.models import Interview
+from .services import process_jd_file   # your PDF text extractor
 
 class ScheduleInterviewAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    def post(self, request, *args, **kwargs):
+        user = request.user  # logged-in student
 
-    def post(self, request):
-        """
-        Student schedules and immediately starts interview.
-        Takes student info, JD text or file, and creates Interview record.
-        """
-        user = request.user
-        if user.role != "student":
-            return Response({"error": {"message": "Only students can schedule interviews"}},
-                            status=status.HTTP_403_FORBIDDEN)
+        # ✅ Get JD file
+        jd_file = request.FILES.get("jd")
+        if not jd_file:
+            return Response({"error": "Job description file is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        jd_text = request.data.get("jd", "")
-        jd_file = request.FILES.get("jd_file")
+        # ✅ Parse JD text using your PyMuPDF extractor
+        jd_text = process_jd_file(jd_file)
 
-        if jd_file:
-            jd_text = process_jd_file(jd_file)
+        difficulty_level = request.data.get("difficulty_level", "beginner")
+        duration = request.data.get("duration_minutes", 30)
 
+        scheduled_time = request.data.get("scheduled_time")
+        if not scheduled_time:
+            scheduled_time = timezone.now()
+
+        # ✅ Save extracted text, not filename
         interview = Interview.objects.create(
             student=user,
-            jd=jd_text,
-            difficulty_level=request.data.get("difficulty_level", "beginner"),
-            scheduled_time=request.data.get("scheduled_time"),
-            duration_minutes=request.data.get("duration_minutes", 20),
-            status="ongoing",  # immediately start interview
+            jd=jd_text,  # <-- PDF TEXT here, not file name
+            difficulty_level=difficulty_level,
+            scheduled_time=scheduled_time,
+            duration_minutes=duration,
+            status="ongoing",
         )
 
-        serializer = InterviewSerializer(interview)
-        return Response({
-            "data": {
-                "message": "Interview scheduled and started successfully",
-                "interview": serializer.data
-            }
-        }, status=status.HTTP_201_CREATED)
+        return Response({"message": "Interview scheduled successfully", "id": interview.id}, status=status.HTTP_201_CREATED)

@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from authentication.models import Interview, User
-from datetime import timedelta
 
 class InterviewSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="student.name", read_only=True)
@@ -10,9 +9,9 @@ class InterviewSerializer(serializers.ModelSerializer):
         model = Interview
         fields = [
             "id",
-            "student",   # student_id (FK)
-            "student_name",
-            "student_email",
+            "student",         # FK: student_id
+            "student_name",    # derived
+            "student_email",   # derived
             "jd",
             "difficulty_level",
             "scheduled_time",
@@ -21,3 +20,12 @@ class InterviewSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "status", "created_at"]
+
+    def validate_difficulty_level(self, value):
+        """Ensure difficulty_level is one of the valid choices."""
+        valid_choices = [choice[0] for choice in Interview.DIFFICULTY_CHOICES]
+        if value not in valid_choices:
+            raise serializers.ValidationError(
+                f"Invalid difficulty level. Choose one of: {', '.join(valid_choices)}"
+            )
+        return value
