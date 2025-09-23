@@ -15,12 +15,10 @@ def get_user_from_id(user_id):
         return AnonymousUser()
 
 class JWTAuthMiddleware:
-    """Minimal JWT middleware for Channels (no BaseMiddleware dependency)."""
     def __init__(self, inner):
         self.inner = inner
 
     async def __call__(self, scope, receive, send):
-        # read ?token=... from query string
         token = None
         try:
             qs = parse_qs(scope.get("query_string", b"").decode())
@@ -31,7 +29,7 @@ class JWTAuthMiddleware:
         scope["user"] = AnonymousUser()
         if token:
             try:
-                untyped = UntypedToken(token)        # validates signature & expiry
+                untyped = UntypedToken(token)       # validates signature/expiry
                 payload = untyped.payload
                 user_id = payload.get("user_id")
                 if user_id is not None:
