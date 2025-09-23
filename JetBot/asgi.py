@@ -1,3 +1,4 @@
+# JetBot/asgi.py
 import os
 import django
 from channels.routing import ProtocolTypeRouter, URLRouter
@@ -23,4 +24,13 @@ application = ProtocolTypeRouter({
         )
     ),
 })
-# uvicorn JetBot.asgi:application --port 8000 --reload
+
+# Mount static files for ASGI
+if settings.DEBUG:  # serve static only in dev
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+
+    application = Starlette(routes=[
+        Mount("/static", app=StaticFiles(directory=settings.STATIC_ROOT), name="static"),
+        Mount("", app=application),  # your Django/Channels app
+    ])
