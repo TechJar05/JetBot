@@ -3,14 +3,18 @@ import asyncio
 import json
 import websockets
 
-DEEPGRAM_REALTIME_URL = "wss://api.deepgram.com/v1/listen?encoding=opus&sample_rate=48000&channels=1&multichannel=false&punctuate=true&interim_results=true"
+DEEPGRAM_REALTIME_URL = (
+    "wss://api.deepgram.com/v1/listen"
+    "?encoding=opus&sample_rate=48000&channels=1"
+    "&multichannel=false&punctuate=true&interim_results=true"
+)
 
 class DeepgramStream:
     """
     Minimal Deepgram realtime WS client.
     Call .start(), then .send_audio(bytes) repeatedly.
     Subscribe to transcripts via on_transcript (async callback).
-    Call .close() when done.
+    Call .flush_and_close() when done.
     """
     def __init__(self, api_key: str, on_transcript):
         self.api_key = api_key
@@ -21,12 +25,25 @@ class DeepgramStream:
 
     async def start(self):
         headers = [("Authorization", f"Token {self.api_key}")]
-        self.ws = await websockets.connect(DEEPGRAM_REALTIME_URL, extra_headers=headers, ping_interval=15)
+        self.ws = await websockets.connect(
+            DEEPGRAM_REALTIME_URL,
+            extra_headers=headers,
+            ping_interval=15
+        )
+        # Tell Deepgram the stream format (important!)
+        await self.ws.send(json.dumps({
+            "type": "start",
+            "encoding": "opus",
+            "sample_rate": 48000,
+            "channels": 1,
+            "interim_results": True,
+            "punctuate": True
+        }))
         # Start receiver
         self._recv_task = asyncio.create_task(self._receiver())
 
     async def send_audio(self, chunk: bytes):
-        # Deepgram expects binary audio (webm/opus chunks from MediaRecorder)
+        """Send binary audio (webm/opus) to Deepgram."""
         if self.ws:
             await self.ws.send(chunk)
 
@@ -40,11 +57,17 @@ class DeepgramStream:
                 # Deepgram sends transcripts in 'channel.alternatives[0].transcript'
                 # interim results contain "is_final": False
                 # finals contain "is_final": True
-                await self.on_transcript(data)
+                try:
+                    await self.on_transcript(data)
+                except Exception:
+                    # Don't crash the receiver if callback fails
+                    pass
         except Exception:
+            # Socket closed or network error
             pass
 
     async def flush_and_close(self):
+        """Gracefully close the Deepgram stream."""
         if self._closed:
             return
         self._closed = True
