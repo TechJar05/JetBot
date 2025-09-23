@@ -9,13 +9,13 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "JetBot.settings")
 django.setup()
 
 import interview.routing
-from authentication.middleware import JWTAuthMiddleware  # <-- use your JWT WS middleware
+from channels.auth import AuthMiddlewareStack # <-- use your JWT WS middleware
 
 django_asgi_app = get_asgi_application()
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
-    "websocket": JWTAuthMiddleware(          # <-- swap here
+    "websocket": AuthMiddlewareStack(          # <-- swap here
         URLRouter(interview.routing.websocket_urlpatterns)
     ),
 })
