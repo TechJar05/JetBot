@@ -3,7 +3,7 @@ import json
 import base64
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
-from services.stt_service import DeepgramStream
+from all_services.stt_services import DeepgramStream
 
 class InterviewConsumer(AsyncWebsocketConsumer):
     """
