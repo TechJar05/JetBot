@@ -6,7 +6,7 @@ from django.conf import settings
 from all_services.stt_services import DeepgramStream
 
 # Optional: toggle this to True while debugging
-DEBUG_WS = False
+DEBUG_WS = True
 
 class InterviewConsumer(AsyncWebsocketConsumer):
     """
