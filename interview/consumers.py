@@ -31,7 +31,7 @@ class InterviewConsumer(AsyncWebsocketConsumer):
             return
 
         # Deepgram API key
-        api_key = getattr(settings, "DEEPGRAM_API_KEY", "")
+        api_key = "5933167cd46c63282343c2b0255fd067029fec2e"
         await self.accept()  # accept WS early so we can emit errors to client
         if not api_key:
             await self.send_json({"type": "error", "message": "Deepgram API key missing on server"})
