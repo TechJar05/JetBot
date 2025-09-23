@@ -2,7 +2,7 @@
 import os
 import django
 from channels.routing import ProtocolTypeRouter, URLRouter
-from channels.auth import AuthMiddlewareStack
+from authentication.middleware import JWTAuthMiddleware
 from django.core.asgi import get_asgi_application
 from starlette.staticfiles import StaticFiles
 from django.conf import settings
@@ -17,11 +17,9 @@ django_asgi_app = get_asgi_application()
 
 # Protocol Router
 application = ProtocolTypeRouter({
-    "http": django_asgi_app,
-    "websocket": AuthMiddlewareStack(
-        URLRouter(
-            interview.routing.websocket_urlpatterns
-        )
+    "http": get_asgi_application(),
+    "websocket": JWTAuthMiddleware(
+        URLRouter(interview.routing.websocket_urlpatterns)
     ),
 })
 
