@@ -26,6 +26,10 @@ SECRET_KEY = 'django-insecure-msjm_2ug@g_xav@yf8*!j1wjudj4#45g6alb)0g(+)vt2mi$5j
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
+
+DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
+
+
 ALLOWED_HOSTS = []
 
 CORS_ALLOWED_ORIGINS = [
@@ -51,6 +55,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -81,6 +86,8 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'JetBot.wsgi.application'
+
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 
 REST_FRAMEWORK = {
