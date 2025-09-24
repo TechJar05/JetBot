@@ -9,6 +9,7 @@ from django.conf import settings
 # Access the API key from the environment
 load_dotenv()
 
+# Optional: toggle this to True while debugging
 DEBUG_WS = True
 
 class InterviewConsumer(AsyncWebsocketConsumer):
