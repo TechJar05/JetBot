@@ -1,25 +1,17 @@
 # interview/consumers.py
 import json
 import base64
+import asyncio
 from channels.generic.websocket import AsyncWebsocketConsumer
-from django.conf import settings
 from all_services.stt_services import DeepgramStream
+from dotenv import load_dotenv
+from django.conf import settings
+# Access the API key from the environment
+load_dotenv()
 
-# Optional: toggle this to True while debugging
-DEBUG_WS = False
+DEBUG_WS = True
 
 class InterviewConsumer(AsyncWebsocketConsumer):
-    """
-    Frontend -> Server:
-      { "type": "audio", "mime": "audio/webm;codecs=opus", "chunk": "<base64>" }
-      { "type": "control", "action": "stop" }
-
-    Server -> Frontend:
-      { "type": "info", "message": "..." }
-      { "type": "error", "message": "..." }
-      { "type": "transcript", "final": bool, "text": "..." }
-    """
-
     async def connect(self):
         self.interview_id = self.scope["url_route"]["kwargs"]["interview_id"]
         self.user = self.scope.get("user")
@@ -30,125 +22,91 @@ class InterviewConsumer(AsyncWebsocketConsumer):
             await self.close(code=4401)
             return
 
-        # Deepgram API key
-        api_key = "5933167cd46c63282343c2b0255fd067029fec2e"
-        await self.accept()  # accept WS early so we can emit errors to client
+        # Accept connection
+        await self.accept()
+
+        # Deepgram API key (use env var in production!)
+        api_key = settings.DEEPGRAM_API_KEY
         if not api_key:
-            await self.send_json({"type": "error", "message": "Deepgram API key missing on server"})
+            await self.safe_send({"type": "error", "message": "Deepgram API key missing"})
             await self.close()
             return
 
-        # Transcript handler
+        # Transcript callback
         async def on_transcript(payload: dict):
-            """
-            Handles messages like:
-              - Results (with is_final / transcript)
-              - MetadataResponse
-              - CloseStreamResponse / finalize
-            """
-            ptype = payload.get("type")
-            if ptype == "Results":
-                channel = payload.get("channel", {})
-                alts = channel.get("alternatives", [])
-                if not alts:
-                    return
-                text = alts[0].get("transcript", "")
-                if not text:
-                    return
-                is_final = bool(payload.get("is_final", False))
-                await self.send_json({"type": "transcript", "final": is_final, "text": text})
+            try:
+                ptype = payload.get("type")
+                if ptype == "Results":
+                    channel = payload.get("channel", {})
+                    alts = channel.get("alternatives", [])
+                    if alts and (text := alts[0].get("transcript")):
+                        is_final = bool(payload.get("is_final", False))
+                        await self.safe_send({
+                            "type": "transcript",
+                            "final": is_final,
+                            "text": text
+                        })
+                elif DEBUG_WS:
+                    await self.safe_send({"type": "info", "message": f"DG:{ptype}"})
+            except Exception:
+                pass
 
-            elif ptype in ("MetadataResponse", "FinalizeResponse", "CloseStreamResponse"):
-                # You can forward or ignore these; forwarding helps debugging
-                if DEBUG_WS:
-                    await self.send_json({"type": "info", "message": f"DG:{ptype}"})
-
-            else:
-                # Unknown/other messages (often harmless)
-                if DEBUG_WS:
-                    await self.send_json({"type": "info", "message": f"DG:other {ptype}"})
-
-
-        # Start Deepgram realtime stream
+        # Start Deepgram connection
         self.dg = DeepgramStream(api_key, on_transcript=on_transcript)
         try:
             await self.dg.start()
         except Exception as e:
-            await self.send_json({"type": "error", "message": f"Deepgram connect failed: {e}"})
+            await self.safe_send({"type": "error", "message": f"Deepgram failed: {e}"})
             await self.close()
             return
 
-        await self.send_json({"type": "info", "message": f"Interview {self.interview_id} connected. Start sending audio chunks."})
+        # Let client know it’s ready
+        await asyncio.sleep(0.05)
+        await self.safe_send({
+            "type": "info",
+            "message": f"Interview {self.interview_id} connected. Start sending audio chunks."
+        })
 
     async def receive(self, text_data=None, bytes_data=None):
-        if not text_data:
-            return
-
-        # Parse JSON
-        try:
-            msg = json.loads(text_data)
-        except Exception:
-            await self.send_json({"type": "error", "message": "Invalid JSON"})
-            return
-
-        mtype = msg.get("type")
-
-        # Audio payloads
-        if mtype == "audio":
-            if self.dg is None:
-                await self.send_json({"type": "error", "message": "STT stream not ready"})
-                return
-
-            # Validate mime (best-effort)
-            mime = str(msg.get("mime") or "")
-            if "audio/webm" not in mime or "opus" not in mime:
-                # Not fatal, but warn once per session if needed
-                if DEBUG_WS:
-                    await self.send_json({"type": "info", "message": f"Non-opus mime received: {mime}"})
-
-            # Decode base64 and send
-            b64 = msg.get("chunk")
-            if not b64:
-                await self.send_json({"type": "error", "message": "Missing audio chunk"})
-                return
-
+        # --- Handle raw binary audio (preferred path) ---
+        if bytes_data and self.dg:
             try:
-                chunk = base64.b64decode(b64)
-            except Exception:
-                await self.send_json({"type": "error", "message": "Invalid base64"})
-                return
-
-            # Drop obviously huge frames (protects your WS/STT)
-            if len(chunk) > 512 * 1024:  # 512 KB safeguard
+                if len(bytes_data) > 512 * 1024:  # 512 KB safety limit
+                    return
+                await self.dg.send_audio(bytes_data)
                 if DEBUG_WS:
-                    await self.send_json({"type": "info", "message": f"Chunk too large: {len(chunk)} bytes, dropping"})
-                return
-
-            try:
-                await self.dg.send_audio(chunk)
-                if DEBUG_WS:
-                    await self.send_json({"type": "info", "message": f"server got audio ({len(chunk)} bytes)"})
+                    await self.safe_send({
+                        "type": "info",
+                        "message": f"Audio chunk received ({len(bytes_data)} bytes)"
+                    })
             except Exception as e:
-                await self.send_json({"type": "error", "message": f"Audio send failed: {e}"})
+                await self.safe_send({"type": "error", "message": f"Audio send failed: {e}"})
+            return
 
-        # Control messages
-        elif mtype == "control":
-            action = msg.get("action")
-            if action == "stop":
-                await self.send_json({"type": "info", "message": "Stopping stream"})
-                try:
-                    if self.dg:
-                        await self.dg.flush_and_close()
-                finally:
-                    await self.close()
+        # --- Handle JSON control messages ---
+        if text_data:
+            try:
+                msg = json.loads(text_data)
+            except Exception:
+                await self.safe_send({"type": "error", "message": "Invalid JSON"})
+                return
+
+            mtype = msg.get("type")
+
+            if mtype == "control":
+                action = msg.get("action")
+                if action == "stop":
+                    await self.safe_send({"type": "info", "message": "Stopping stream"})
+                    try:
+                        if self.dg:
+                            await self.dg.flush_and_close()
+                    finally:
+                        await self.close()
+                elif DEBUG_WS:
+                    await self.safe_send({"type": "info", "message": f"Unknown control: {action}"})
             else:
-                # Unknown control action
-                if DEBUG_WS:
-                    await self.send_json({"type": "info", "message": f"Unknown control: {action}"})
-
-        else:
-            # Echo for any other text payloads (handy while integrating)
-            await self.send_json({"type": "echo", "payload": msg})
+                # Fallback echo for debugging
+                await self.safe_send({"type": "echo", "payload": msg})
 
     async def disconnect(self, close_code):
         try:
@@ -157,5 +115,9 @@ class InterviewConsumer(AsyncWebsocketConsumer):
         except Exception:
             pass
 
-    async def send_json(self, data: dict):
-        await super().send(text_data=json.dumps(data))
+    # --- Safe send wrapper ---
+    async def safe_send(self, data: dict):
+        try:
+            await super().send(text_data=json.dumps(data))
+        except Exception:
+            pass

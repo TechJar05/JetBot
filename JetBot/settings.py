@@ -13,6 +13,10 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import dj_database_url
 import os
+from dotenv import load_dotenv
+from django.conf import settings
+# Access the API key from the environment
+load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -26,7 +30,9 @@ SECRET_KEY = 'django-insecure-msjm_2ug@g_xav@yf8*!j1wjudj4#45g6alb)0g(+)vt2mi$5j
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
+
+DEEPGRAM_API_KEY=os.getenv('DEEPGRAM_API_KEY')
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev

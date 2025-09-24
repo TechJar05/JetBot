@@ -29,7 +29,7 @@ class JWTAuthMiddleware:
         scope["user"] = AnonymousUser()
         if token:
             try:
-                untyped = UntypedToken(token)       # validates signature/expiry
+                untyped = UntypedToken(token)  # validates signature/expiry
                 payload = untyped.payload
                 user_id = payload.get("user_id")
                 if user_id is not None:
@@ -37,4 +37,11 @@ class JWTAuthMiddleware:
             except Exception:
                 scope["user"] = AnonymousUser()
 
-        return await self.inner(scope, receive, send)
+        # Wrap send to ignore disconnected clients
+        async def safe_send(message):
+            try:
+                await send(message)
+            except Exception:
+                pass
+
+        return await self.inner(scope, receive, safe_send)
