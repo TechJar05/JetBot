@@ -85,6 +85,8 @@ class Interview(models.Model):
     scheduled_time = models.DateTimeField()
     duration_minutes = models.PositiveIntegerField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    full_transcript = models.TextField(null=True, blank=True)
+    questions = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
  
     def __str__(self):

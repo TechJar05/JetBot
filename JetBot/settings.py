@@ -15,6 +15,7 @@ import dj_database_url
 import os
 from dotenv import load_dotenv
 from django.conf import settings
+from datetime import timedelta
 # Access the API key from the environment
 load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -33,6 +34,9 @@ DEBUG = True
 ALLOWED_HOSTS = ["*"]
 
 DEEPGRAM_API_KEY=os.getenv('DEEPGRAM_API_KEY')
+OPENAI_API_KEY=os.getenv('OPENAI_API_KEY')
+ASSEMBLYAI_API_KEY = "d26316b442e54e1fb75ae349d78cd5be"
+
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev
@@ -109,7 +113,20 @@ DATABASES = {
 
 
 
+SIMPLE_JWT = {
+    # Access token lifetime
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),   # default is 5 minutes
 
+    # Refresh token lifetime
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),      # default is 1 day
+
+    # Optional: if you want to rotate refresh tokens
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+
+    # (optional, for security)
+    "UPDATE_LAST_LOGIN": True,
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

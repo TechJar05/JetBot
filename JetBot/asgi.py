@@ -30,3 +30,4 @@ if settings.DEBUG:
         Mount("/static", app=StaticFiles(directory=settings.STATIC_ROOT), name="static"),
         Mount("", app=application),
     ])
+# uvicorn JetBot.asgi:application --port 8000 --reload  

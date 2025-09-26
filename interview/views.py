@@ -4,6 +4,8 @@ from rest_framework import status
 from django.utils import timezone
 from authentication.models import Interview
 from .services import process_jd_file   # your PDF text extractor
+from all_services.question_generator import generate_interview_questions  # ✅ new import
+
 
 class ScheduleInterviewAPIView(APIView):
     def post(self, request, *args, **kwargs):
@@ -24,14 +26,26 @@ class ScheduleInterviewAPIView(APIView):
         if not scheduled_time:
             scheduled_time = timezone.now()
 
-        # ✅ Save extracted text, not filename
+        # ✅ Generate questions using LLM service
+        questions = generate_interview_questions(jd_text, difficulty_level)
+
         interview = Interview.objects.create(
             student=user,
-            jd=jd_text,  # <-- PDF TEXT here, not file name
+            jd=jd_text,
             difficulty_level=difficulty_level,
             scheduled_time=scheduled_time,
             duration_minutes=duration,
             status="ongoing",
+            questions=questions,   # ✅ now stored directly
         )
 
-        return Response({"message": "Interview scheduled successfully", "id": interview.id}, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "message": "Interview scheduled successfully",
+                "id": interview.id,
+                "difficulty": interview.difficulty_level,
+                "scheduled_time": interview.scheduled_time,
+                "questions": questions,  # ✅ return to frontend
+            },
+            status=status.HTTP_201_CREATED,
+        )

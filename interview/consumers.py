@@ -1,90 +1,107 @@
 # interview/consumers.py
 import json
-import base64
 import asyncio
 from channels.generic.websocket import AsyncWebsocketConsumer
-from all_services.stt_services import DeepgramStream
-from dotenv import load_dotenv
+from channels.db import database_sync_to_async
 from django.conf import settings
-# Access the API key from the environment
-load_dotenv()
+from dotenv import load_dotenv
 
-# Optional: toggle this to True while debugging
+from all_services.assemblyai_stream import AssemblyAIStream
+from all_services.tts_services import stream_tts
+from authentication.models import Interview
+
+load_dotenv()
 DEBUG_WS = True
+
 
 class InterviewConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.interview_id = self.scope["url_route"]["kwargs"]["interview_id"]
         self.user = self.scope.get("user")
         self.dg = None
+        self.questions = []
+        self.current_q = 0
 
-        # Require an authenticated student
+        # ✅ Only students can connect
         if not self.user or not self.user.is_authenticated or getattr(self.user, "role", None) != "student":
             await self.close(code=4401)
             return
 
-        # Accept connection
+        # ✅ Load interview & verify student ownership
+        interview = await self.get_interview()
+        if not interview:
+            await self.close(code=4404)  # not found / not allowed
+            return
+
+        # ✅ Load questions from DB
+        self.questions = interview.questions or []
+        if not self.questions:
+            await self.close(code=4404)
+            return
+
         await self.accept()
 
-        # Deepgram API key (use env var in production!)
         api_key = settings.DEEPGRAM_API_KEY
         if not api_key:
             await self.safe_send({"type": "error", "message": "Deepgram API key missing"})
             await self.close()
             return
 
-        # Transcript callback
+        # ✅ Deepgram transcript callback
         async def on_transcript(payload: dict):
             try:
-                ptype = payload.get("type")
-                if ptype == "Results":
-                    channel = payload.get("channel", {})
-                    alts = channel.get("alternatives", [])
-                    if alts and (text := alts[0].get("transcript")):
-                        is_final = bool(payload.get("is_final", False))
+                if payload.get("type") == "Turn":
+                    transcript = payload.get("transcript", "")
+                    end_of_turn = payload.get("end_of_turn", False)
+
+                    if transcript:
                         await self.safe_send({
                             "type": "transcript",
-                            "final": is_final,
-                            "text": text
+                            "final": end_of_turn,
+                            "text": transcript
                         })
-                elif DEBUG_WS:
-                    await self.safe_send({"type": "info", "message": f"DG:{ptype}"})
-            except Exception:
-                pass
+                        if end_of_turn:
+                            await self.save_answer(transcript)
+                            await self.safe_send({
+                                "type": "answer_complete",
+                                "message": "Answer captured. Continue or move to next question?"
+                            })
 
-        # Start Deepgram connection
-        self.dg = DeepgramStream(api_key, on_transcript=on_transcript)
+                elif DEBUG_WS:
+                    await self.safe_send({"type": "info", "message": f"DG:{payload.get('type')}"})
+            except Exception as e:
+                if DEBUG_WS:
+                    await self.safe_send({"type": "error", "message": f"Transcript error: {e}"})
+
+        # ✅ Start Deepgram stream
+        self.stt = AssemblyAIStream(settings.ASSEMBLYAI_API_KEY, sample_rate=16000, on_transcript=on_transcript)
         try:
-            await self.dg.start()
+            await self.stt.start()
         except Exception as e:
             await self.safe_send({"type": "error", "message": f"Deepgram failed: {e}"})
             await self.close()
             return
 
-        # Let client know it’s ready
         await asyncio.sleep(0.05)
-        await self.safe_send({
-            "type": "info",
-            "message": f"Interview {self.interview_id} connected. Start sending audio chunks."
-        })
+        await self.safe_send({"type": "info", "message": f"Interview {self.interview_id} connected"})
 
     async def receive(self, text_data=None, bytes_data=None):
-        # --- Handle raw binary audio (preferred path) ---
-        if bytes_data and self.dg:
+        # ✅ Handle raw audio chunks
+        if bytes_data and self.stt:
             try:
-                if len(bytes_data) > 512 * 1024:  # 512 KB safety limit
+                if len(bytes_data) > 512 * 1024:  # limit chunk size
                     return
-                await self.dg.send_audio(bytes_data)
+                await self.stt.send_audio(bytes_data)
                 if DEBUG_WS:
                     await self.safe_send({
                         "type": "info",
-                        "message": f"Audio chunk received ({len(bytes_data)} bytes)"
+                        "message": f"Audio chunk {len(bytes_data)} bytes"
                     })
             except Exception as e:
                 await self.safe_send({"type": "error", "message": f"Audio send failed: {e}"})
             return
 
-        # --- Handle JSON control messages ---
+        # ✅ Handle JSON messages
         if text_data:
             try:
                 msg = json.loads(text_data)
@@ -92,31 +109,89 @@ class InterviewConsumer(AsyncWebsocketConsumer):
                 await self.safe_send({"type": "error", "message": "Invalid JSON"})
                 return
 
-            mtype = msg.get("type")
-
-            if mtype == "control":
+            if msg.get("type") == "control":
                 action = msg.get("action")
                 if action == "stop":
-                    await self.safe_send({"type": "info", "message": "Stopping stream"})
+                    await self.safe_send({"type": "info", "message": "Stopping interview"})
                     try:
-                        if self.dg:
-                            await self.dg.flush_and_close()
+                        if self.stt:
+                            await self.stt.flush_and_close()
                     finally:
                         await self.close()
+
+                elif action == "start_interview":
+                    await self.next_question()
+
+                elif action == "next_question":
+                    await self.next_question()
+
+                elif action == "continue_answer":
+                    await self.safe_send({"type": "info", "message": "Continuing same answer..."})
+
                 elif DEBUG_WS:
                     await self.safe_send({"type": "info", "message": f"Unknown control: {action}"})
+
             else:
-                # Fallback echo for debugging
                 await self.safe_send({"type": "echo", "payload": msg})
+
+    async def next_question(self):
+        if self.current_q >= len(self.questions):
+            await self.safe_send({"type": "info", "message": "Interview complete"})
+            return
+
+        question = self.questions[self.current_q]
+        self.current_q += 1
+
+        # Save to DB
+        await self.save_question(question)
+
+        # ✅ Immediately tell frontend which question is being asked
+        await self.safe_send({
+            "type": "question",
+            "text": question
+        })
+
+        # Stream TTS and forward audio
+        async def forward_chunk(audio_b64, is_final):
+            await self.safe_send({
+                "type": "tts_chunk",
+                "audio": audio_b64,
+                "isFinal": is_final,
+                "text": question if is_final else None
+            })
+
+        await stream_tts(question, forward_chunk)
+
+
+    # -------------------------
+    # DB Helpers
+    # -------------------------
+    @database_sync_to_async
+    def get_interview(self):
+        try:
+            return Interview.objects.get(id=self.interview_id, student=self.user)
+        except Interview.DoesNotExist:
+            return None
+
+    @database_sync_to_async
+    def save_question(self, text):
+        interview = Interview.objects.get(id=self.interview_id, student=self.user)
+        interview.full_transcript = (interview.full_transcript or "") + f"\nQ: {text}"
+        interview.save()
+
+    @database_sync_to_async
+    def save_answer(self, text):
+        interview = Interview.objects.get(id=self.interview_id, student=self.user)
+        interview.full_transcript = (interview.full_transcript or "") + f"\nA: {text}"
+        interview.save()
 
     async def disconnect(self, close_code):
         try:
-            if self.dg:
-                await self.dg.flush_and_close()
+            if self.stt:
+               await self.stt.flush_and_close()
         except Exception:
             pass
 
-    # --- Safe send wrapper ---
     async def safe_send(self, data: dict):
         try:
             await super().send(text_data=json.dumps(data))
