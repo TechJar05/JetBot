@@ -33,6 +33,45 @@ DEBUG = False
 
 ALLOWED_HOSTS = ["*"]
 
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_SAMESITE = "Lax"  
+
+# CSRF: trust your public origins (must include scheme)
+CSRF_TRUSTED_ORIGINS = [
+    "https://jetbot.tjdem.online",
+    "https://your-react-domain.com",      
+    "https://www.your-react-domain.com", 
+]
+
+
+CORS_ALLOWED_ORIGINS = [
+    "https://your-react-domain.com",      
+    "https://www.your-react-domain.com",  
+    "https://jetbot.tjdem.online",        
+    "http://localhost:3000",             
+    "http://127.0.0.1:3000",              
+]
+
+# If you use cookies (session/auth) across origins:
+CORS_ALLOW_CREDENTIALS = True
+
+# Optional: allow extra headers commonly used by SPA/Axios
+CORS_ALLOW_HEADERS = list({
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+})
+
+
 DEEPGRAM_API_KEY=os.getenv('DEEPGRAM_API_KEY')
 OPENAI_API_KEY=os.getenv('OPENAI_API_KEY')
 ASSEMBLYAI_API_KEY = "d26316b442e54e1fb75ae349d78cd5be"
@@ -56,12 +95,14 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'authentication',
     'channels',
+    'corsheaders'
     
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -162,8 +203,13 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / "staticfiles"
+# STATIC_URL = '/static/'
+# STATIC_ROOT = BASE_DIR / "staticfiles"
+
+STATIC_URL = "/static/"
+STATIC_ROOT = "/var/www/jetbot/static"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = "/var/www/jetbot/media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
