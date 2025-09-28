@@ -35,7 +35,7 @@ class ScheduleInterviewAPIView(APIView):
             difficulty_level=difficulty_level,
             scheduled_time=scheduled_time,
             duration_minutes=duration,
-            status="ongoing",
+            status="pending",
             questions=questions,   # ✅ now stored directly
         )
 

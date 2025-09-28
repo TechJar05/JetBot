@@ -52,7 +52,11 @@ CORS_ALLOWED_ORIGINS = [
     "https://www.your-react-domain.com",  
     "https://jetbot.tjdem.online",        
     "http://localhost:3000",             
+    "http://localhost:5173",             
+    "http://localhost:5174",             
     "http://127.0.0.1:3000",              
+    "http://127.0.0.1:5173",              
+    "http://127.0.0.1:5174",              
 ]
 
 # If you use cookies (session/auth) across origins:
@@ -77,10 +81,7 @@ OPENAI_API_KEY=os.getenv('OPENAI_API_KEY')
 ASSEMBLYAI_API_KEY = "d26316b442e54e1fb75ae349d78cd5be"
 
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # React dev
-    # add your frontend origin(s)
-]
+
 
 # Application definition
 
