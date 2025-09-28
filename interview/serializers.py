@@ -29,3 +29,15 @@ class InterviewSerializer(serializers.ModelSerializer):
                 f"Invalid difficulty level. Choose one of: {', '.join(valid_choices)}"
             )
         return value
+
+
+
+
+from rest_framework import serializers
+from authentication.models import Report
+
+class ReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Report
+        fields = "__all__"
+        read_only_fields = ("id", "created_at", "interview")
