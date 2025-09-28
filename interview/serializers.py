@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from authentication.models import Interview, User
 
+
 class InterviewSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="student.name", read_only=True)
     student_email = serializers.EmailField(source="student.email", read_only=True)
@@ -29,3 +30,11 @@ class InterviewSerializer(serializers.ModelSerializer):
                 f"Invalid difficulty level. Choose one of: {', '.join(valid_choices)}"
             )
         return value
+
+
+class StudentSearchSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for student search (autocomplete)."""
+
+    class Meta:
+        model = User
+        fields = ["id", "name", "email"]
