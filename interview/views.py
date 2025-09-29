@@ -329,22 +329,28 @@ class CompleteInterviewAndGenerateReportAPIView(APIView):
         return Response(ReportSerializer(report).data, status=201 if created else 200)
 
 
+from .serializers import ReportListSerializer
+
+
 class ReportListView(generics.ListAPIView):
     """
     Admin: all reports
     Student: only their reports
     """
-    serializer_class = ReportSerializer
+    serializer_class = ReportListSerializer
 
     def get_queryset(self):
-        qs = Report.objects.select_related("interview", "interview__student")
         user = self.request.user
+        qs = Report.objects.select_related("interview", "interview__student")  # join with interview and student
+
         if not user.is_authenticated:
             return Report.objects.none()
-        if getattr(user, "role", None) in ("admin", "super_admin"):
-            return qs.order_by("-created_at")
-        return qs.filter(interview__student=user).order_by("-created_at")
 
+        if getattr(user, "role", None) in ("admin", "super_admin"):
+            return qs.order_by("-created_at")  # Admin sees all reports, ordered by created_at
+
+        # Only return the reports that belong to the logged-in student
+        return qs.filter(interview__student=user).order_by("-created_at")  # Student only sees their own reports
 
 class ReportDetailView(generics.RetrieveAPIView):
     """

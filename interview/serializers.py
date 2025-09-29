@@ -50,6 +50,34 @@ class ReportSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "interview")
 
 
+from rest_framework import serializers
+from authentication.models import Report
+
+class ReportListSerializer(serializers.ModelSerializer):
+    report_id = serializers.IntegerField(source="id")  # report ID from Report model
+    student_name = serializers.CharField(source="interview.student.name")
+    roll_no = serializers.CharField(source="interview.student.batch_no")
+    batch_no = serializers.CharField(source="interview.student.batch_no")
+    center = serializers.CharField(source="interview.student.center")
+    course = serializers.CharField(source="interview.student.course_name")
+    evaluation_date = serializers.DateTimeField(source="interview.scheduled_time")
+    difficulty_level = serializers.CharField(source="interview.difficulty_level")
+    interview_time = serializers.DateTimeField(source="interview.scheduled_time")
+
+    class Meta:
+        model = Report
+        fields = [
+            "report_id",  # The report's ID
+            "student_name",
+            "roll_no",
+            "batch_no",
+            "center",
+            "course",
+            "evaluation_date",
+            "difficulty_level",
+            "interview_time",
+        ]
+
 
 
 
@@ -147,3 +175,6 @@ class VisualFeedbackSerializer(serializers.ModelSerializer):
         except Report.DoesNotExist:
             return ""
         return ""
+
+
+
