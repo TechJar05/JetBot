@@ -416,3 +416,74 @@ class MyInterviewsListView(generics.ListAPIView):
         upcoming = qs.filter(scheduled_time__gte=now()).order_by("scheduled_time")
         past = qs.filter(scheduled_time__lt=now()).order_by("-scheduled_time")
         return upcoming.union(past)
+
+
+
+
+
+from django.db.models import Count
+from django.db.models.functions import TruncDate
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+
+class InterviewAnalyticsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        data = {}
+
+        # 1. Interview Status Distribution (Completed vs Scheduled)
+        status_counts = Interview.objects.values("status").annotate(count=Count("id"))
+
+        completed_count = 0
+        scheduled_count = 0
+
+        for item in status_counts:
+            if item["status"] == "completed":
+                completed_count += item["count"]
+            else:  # pending + ongoing = scheduled
+                scheduled_count += item["count"]
+
+        total_interviews = completed_count + scheduled_count
+
+        status_distribution = []
+        if total_interviews > 0:
+            status_distribution = [
+                {
+                    "status": "completed",
+                    "count": completed_count,
+                    "percentage": round((completed_count / total_interviews) * 100, 2),
+                },
+                {
+                    "status": "scheduled",
+                    "count": scheduled_count,
+                    "percentage": round((scheduled_count / total_interviews) * 100, 2),
+                },
+            ]
+
+        data["status_distribution"] = status_distribution
+
+        # 2. Difficulty Level Distribution
+        difficulty_counts = Interview.objects.values("difficulty_level").annotate(count=Count("id"))
+        data["difficulty_distribution"] = list(difficulty_counts)
+
+        # 3. Top 3 Centers by Student Count
+        top_centers = (
+            User.objects.values("center")
+            .annotate(student_count=Count("id"))
+            .order_by("-student_count")[:3]
+        )
+        data["top_centers"] = list(top_centers)
+
+        # 4. Daily Interview Count
+        daily_counts = (
+            Interview.objects.annotate(date=TruncDate("scheduled_time"))
+            .values("date")
+            .annotate(count=Count("id"))
+            .order_by("date")
+        )
+        data["daily_interview_count"] = list(daily_counts)
+
+        return Response(data)

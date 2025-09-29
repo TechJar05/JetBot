@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import ScheduleInterviewAPIView, SearchStudentAPIView,StudentDetailAPIView, ReportByInterviewView, ReportCreateView, ReportDetailView, ReportListView, CompleteInterviewAndGenerateReportAPIView, MyInterviewsListView
+from .views import ScheduleInterviewAPIView, SearchStudentAPIView,StudentDetailAPIView, ReportByInterviewView, ReportCreateView, ReportDetailView, ReportListView, CompleteInterviewAndGenerateReportAPIView, MyInterviewsListView,InterviewAnalyticsAPIView
 urlpatterns = [
     path("schedule", ScheduleInterviewAPIView.as_view(), name="schedule-interview"),
     path("students/search", SearchStudentAPIView.as_view(), name="search-students"),
@@ -13,4 +13,6 @@ urlpatterns = [
          name="interview-complete-and-generate-report"),
     
     path("my", MyInterviewsListView.as_view(), name="my-interviews"),
+    
+    path("analytics", InterviewAnalyticsAPIView.as_view(), name="interview-analytics"),
 ]
