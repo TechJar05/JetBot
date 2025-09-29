@@ -42,6 +42,7 @@ class StudentSearchSerializer(serializers.ModelSerializer):
 from rest_framework import serializers
 from authentication.models import Report
 
+
 class ReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = Report
@@ -52,9 +53,97 @@ class ReportSerializer(serializers.ModelSerializer):
 
 
 
-
+#  student dashboard analytic report
 class StudentAnalyticsSerializer(serializers.Serializer):
     total_average_rating = serializers.FloatField()
     completed_interviews = serializers.IntegerField()
     skill_breakdown = serializers.DictField()
     interview_ratings = serializers.ListField()
+    
+
+
+#  recuirter dashboard tables serilizers:
+from rest_framework import serializers
+from authentication.models import User, Interview, Report
+
+class InterviewTableSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.name")
+    roll_no = serializers.CharField(source="student.id")
+    batch_no = serializers.CharField(source="student.batch_no")
+    center = serializers.CharField(source="student.center")
+    course = serializers.CharField(source="student.course_name")
+    evaluation_date = serializers.DateTimeField(source="created_at")
+    jd_id = serializers.IntegerField(source="id")
+
+    class Meta:
+        model = Interview
+        fields = [
+            "student_name", "roll_no", "batch_no", "center", "course",
+            "evaluation_date", "difficulty_level", "jd_id", "status", "scheduled_time"
+        ]
+
+
+class InterviewRatingsSerializer(serializers.ModelSerializer):
+    mail_id = serializers.EmailField(source="student.email")
+    technical_rating = serializers.IntegerField(source="report.ratings.technical")
+    communication_rating = serializers.IntegerField(source="report.ratings.communication")
+    problem_solving_rating = serializers.IntegerField(source="report.ratings.problem_solving")
+    time_management_rating = serializers.IntegerField(source="report.ratings.time_mgmt")
+    total_rating = serializers.IntegerField(source="report.ratings.total")
+    interview_ts = serializers.DateTimeField(source="scheduled_time")
+
+    class Meta:
+        model = Interview
+        fields = [
+            "mail_id", "technical_rating", "communication_rating",
+            "problem_solving_rating", "time_management_rating",
+            "total_rating", "interview_ts"
+        ]
+
+
+class VisualFeedbackSerializer(serializers.ModelSerializer):
+    roll_no = serializers.CharField(source="student.id")
+    professional_appearance = serializers.SerializerMethodField()
+    body_language = serializers.SerializerMethodField()
+    environment = serializers.SerializerMethodField()
+    distractions = serializers.SerializerMethodField()
+    interview_ts = serializers.DateTimeField(source="scheduled_time")
+
+    class Meta:
+        model = Interview
+        fields = [
+            "roll_no", "professional_appearance", "body_language",
+            "environment", "distractions", "interview_ts"
+        ]
+
+    def get_professional_appearance(self, obj):
+        try:
+            if obj.report and obj.report.visual_feedback:
+                return obj.report.visual_feedback[0].get("appearance", "")
+        except Report.DoesNotExist:
+            return ""
+        return ""
+
+    def get_body_language(self, obj):
+        try:
+            if obj.report and obj.report.visual_feedback:
+                return obj.report.visual_feedback[0].get("body_language", "")
+        except Report.DoesNotExist:
+            return ""
+        return ""
+
+    def get_environment(self, obj):
+        try:
+            if obj.report and obj.report.visual_feedback:
+                return obj.report.visual_feedback[0].get("environment", "")
+        except Report.DoesNotExist:
+            return ""
+        return ""
+
+    def get_distractions(self, obj):
+        try:
+            if obj.report and obj.report.visual_feedback:
+                return obj.report.visual_feedback[0].get("distractions", "")
+        except Report.DoesNotExist:
+            return ""
+        return ""

@@ -39,7 +39,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True, max_length=255)
     password = models.CharField(max_length=255)  # hashed password
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="student")
- 
+    
     # Extra student-specific fields (nullable for admins)
     name = models.CharField(max_length=150, null=True, blank=True)
     course_name = models.CharField(max_length=150, null=True, blank=True)

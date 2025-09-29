@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from authentication.models import Interview, User, Report
-from .serializers import InterviewSerializer, StudentSearchSerializer, ReportSerializer
+from .serializers import InterviewSerializer, StudentSearchSerializer, ReportSerializer,InterviewTableSerializer,VisualFeedbackSerializer,InterviewRatingsSerializer
 from .services import process_jd_file   # your PDF text extractor
 from all_services.question_generator import generate_interview_questions, generate_chat_completion # LLM question gen
 import json
@@ -421,7 +421,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-
+#  admin side analytic report
 class InterviewAnalyticsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -485,7 +485,7 @@ class InterviewAnalyticsAPIView(APIView):
 
 
 
-
+#  student dashboard analytic report
 class StudentAnalyticsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -557,4 +557,23 @@ class StudentAnalyticsAPIView(APIView):
             "completed_interviews": count,
             "skill_breakdown": skill_breakdown,
             "interview_ratings": ratings_list
+        })
+
+
+
+#  admin side table data 
+class InterviewTableAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        interviews = Interview.objects.select_related('student', 'report').all().order_by('-scheduled_time')
+
+        interview_table = InterviewTableSerializer(interviews, many=True).data
+        interview_ratings = InterviewRatingsSerializer(interviews, many=True).data
+        visual_feedback = VisualFeedbackSerializer(interviews, many=True).data
+
+        return Response({
+            "interview_table": interview_table,
+            "interview_ratings": interview_ratings,
+            "visual_feedback": visual_feedback
         })
