@@ -48,3 +48,13 @@ class ReportSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ("id", "created_at", "interview")
 
+
+
+
+
+
+class StudentAnalyticsSerializer(serializers.Serializer):
+    total_average_rating = serializers.FloatField()
+    completed_interviews = serializers.IntegerField()
+    skill_breakdown = serializers.DictField()
+    interview_ratings = serializers.ListField()
