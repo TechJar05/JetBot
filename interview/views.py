@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from authentication.models import Interview, User, Report
-from .serializers import InterviewSerializer, StudentSearchSerializer, ReportSerializer
+from .serializers import InterviewSerializer, StudentSearchSerializer, ReportSerializer,InterviewTableSerializer,VisualFeedbackSerializer,InterviewRatingsSerializer
 from .services import process_jd_file   # your PDF text extractor
 from all_services.question_generator import generate_interview_questions, generate_chat_completion # LLM question gen
 import json
@@ -427,7 +427,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-
+#  admin side analytic report
 class InterviewAnalyticsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -487,3 +487,99 @@ class InterviewAnalyticsAPIView(APIView):
         data["daily_interview_count"] = list(daily_counts)
 
         return Response(data)
+
+
+
+
+#  student dashboard analytic report
+class StudentAnalyticsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, student_id):
+        # Ensure student exists
+        try:
+            student = User.objects.get(id=student_id, role='student')
+        except User.DoesNotExist:
+            return Response({"error": "Student not found"}, status=404)
+        
+        # Get all completed interviews for this student
+        completed_interviews = Interview.objects.filter(student=student, status='completed')
+        
+        if not completed_interviews.exists():
+            return Response({
+                "total_average_rating": 0,
+                "completed_interviews": 0,
+                "skill_breakdown": {
+                    "technical": 0,
+                    "communication": 0,
+                    "problem_solving": 0,
+                    "time_mgmt": 0
+                },
+                "interview_ratings": []
+            })
+
+        # Collect ratings from each interview
+        ratings_list = []
+        total_technical = total_communication = total_problem = total_time = 0
+        count = 0
+        
+        for interview in completed_interviews:
+            report = getattr(interview, "report", None)
+            if report and report.ratings:
+                r = report.ratings
+                # Assuming ratings keys: technical, communication, problem_solving, time_mgmt
+                technical = r.get('technical', 0)
+                communication = r.get('communication', 0)
+                problem_solving = r.get('problem_solving', 0)
+                time_mgmt = r.get('time_mgmt', 0)
+                
+                # Rating out of 10 (sum all / 4)
+                avg_rating = round((technical + communication + problem_solving + time_mgmt)/4, 2)
+                ratings_list.append({
+                    "interview_id": interview.id,
+                    "rating_out_of_10": avg_rating
+                })
+                
+                # Sum for overall average
+                total_technical += technical
+                total_communication += communication
+                total_problem += problem_solving
+                total_time += time_mgmt
+                count += 1
+        
+        # Total average rating across all interviews
+        total_average_rating = round((total_technical + total_communication + total_problem + total_time) / (count*4), 2)
+        
+        # Skill breakdown average
+        skill_breakdown = {
+            "technical": round(total_technical / count, 2),
+            "communication": round(total_communication / count, 2),
+            "problem_solving": round(total_problem / count, 2),
+            "time_mgmt": round(total_time / count, 2)
+        }
+        
+        return Response({
+            "total_average_rating": total_average_rating,
+            "completed_interviews": count,
+            "skill_breakdown": skill_breakdown,
+            "interview_ratings": ratings_list
+        })
+
+
+
+#  admin side table data 
+class InterviewTableAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        interviews = Interview.objects.select_related('student', 'report').all().order_by('-scheduled_time')
+
+        interview_table = InterviewTableSerializer(interviews, many=True).data
+        interview_ratings = InterviewRatingsSerializer(interviews, many=True).data
+        visual_feedback = VisualFeedbackSerializer(interviews, many=True).data
+
+        return Response({
+            "interview_table": interview_table,
+            "interview_ratings": interview_ratings,
+            "visual_feedback": visual_feedback
+        })
