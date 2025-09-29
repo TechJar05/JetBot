@@ -1,6 +1,15 @@
+aiohappyeyeballs==2.6.1
+aiohttp==3.12.15
+aiosignal==1.4.0
 amqp==5.3.1
 anyio==4.10.0
-asgiref==3.9.1
+asn1crypto==1.5.1
+blinker==1.9.0
+boto3==1.40.33
+botocore==1.40.33
+cachelib==0.13.0
+agiref==3.9.1
+attrs==25.3.0
 bcrypt==4.3.0
 billiard==4.2.1
 celery==5.5.3
@@ -17,6 +26,7 @@ Django==5.2.6
 django-cors-headers==4.8.0
 djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
+frozenlist==1.7.0
 gunicorn==23.0.0
 h11==0.16.0
 h2==4.3.0
@@ -28,8 +38,10 @@ hyperframe==6.1.0
 idna==3.10
 kombu==5.5.4
 msgpack==1.1.1
+multidict==6.6.4
 packaging==25.0
 prompt_toolkit==3.0.52
+propcache==0.3.2
 psycopg2-binary==2.9.10
 PyJWT==2.10.1
 PyMuPDF==1.26.4
@@ -50,3 +62,4 @@ watchfiles==1.1.0
 wcwidth==0.2.13
 websockets==15.0.1
 whitenoise==6.10.0
+yarl==1.20.1

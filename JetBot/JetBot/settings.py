@@ -13,6 +13,11 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import dj_database_url
 import os
+from dotenv import load_dotenv
+from django.conf import settings
+from datetime import timedelta
+# Access the API key from the environment
+load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -24,18 +29,59 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-msjm_2ug@g_xav@yf8*!j1wjudj4#45g6alb)0g(+)vt2mi$5j'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
+
+ALLOWED_HOSTS = ["*"]
 
 
-DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_SAMESITE = "Lax"  
 
+# CSRF: trust your public origins (must include scheme)
+CSRF_TRUSTED_ORIGINS = [
+    "https://jetbot.tjdem.online",
+    "https://your-react-domain.com",      
+    "https://www.your-react-domain.com", 
+]
 
-ALLOWED_HOSTS = []
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # React dev
-    # add your frontend origin(s)
+    "https://your-react-domain.com",      
+    "https://www.your-react-domain.com",  
+    "https://jetbot.tjdem.online",        
+    "http://localhost:3000",             
+    "http://localhost:5173",             
+    "http://localhost:5174",             
+    "http://127.0.0.1:3000",              
+    "http://127.0.0.1:5173",              
+    "http://127.0.0.1:5174",              
 ]
+
+# If you use cookies (session/auth) across origins:
+CORS_ALLOW_CREDENTIALS = True
+
+# Optional: allow extra headers commonly used by SPA/Axios
+CORS_ALLOW_HEADERS = list({
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+})
+
+
+DEEPGRAM_API_KEY=os.getenv('DEEPGRAM_API_KEY')
+OPENAI_API_KEY=os.getenv('OPENAI_API_KEY')
+ASSEMBLYAI_API_KEY = "d26316b442e54e1fb75ae349d78cd5be"
+
+
+
 
 # Application definition
 
@@ -50,13 +96,14 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'authentication',
     'channels',
+    'corsheaders'
     
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -87,8 +134,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'JetBot.wsgi.application'
 
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
-
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -110,7 +155,20 @@ DATABASES = {
 
 
 
+SIMPLE_JWT = {
+    # Access token lifetime
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),   # default is 5 minutes
 
+    # Refresh token lifetime
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),      # default is 1 day
+
+    # Optional: if you want to rotate refresh tokens
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+
+    # (optional, for security)
+    "UPDATE_LAST_LOGIN": True,
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -146,8 +204,13 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / "staticfiles"
+# STATIC_URL = '/static/'
+# STATIC_ROOT = BASE_DIR / "staticfiles"
+
+STATIC_URL = "/static/"
+STATIC_ROOT = "/var/www/jetbot/static"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = "/var/www/jetbot/media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
