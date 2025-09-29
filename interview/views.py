@@ -4,7 +4,7 @@ from rest_framework import status, permissions, generics
 from django.utils import timezone
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-
+from django.utils.timezone import now
 from authentication.models import Interview, User, Report
 from .serializers import InterviewSerializer, StudentSearchSerializer, ReportSerializer
 from .services import process_jd_file   # your PDF text extractor
@@ -17,6 +17,16 @@ def _can_view_or_own(user: User, interview: Interview) -> bool:
     if getattr(user, "role", None) in ("admin", "super_admin"):
         return True
     return interview.student_id == user.id
+
+
+class IsStudent(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and getattr(request.user, "role", None) == "student"
+        )
+        
 
 def _create_report_for_interview(interview: Interview) -> Report:
     """
@@ -372,3 +382,31 @@ class ReportByInterviewView(generics.GenericAPIView):
         except Report.DoesNotExist:
             return Response({"error": "Report not generated yet"}, status=404)
         return Response(ReportSerializer(report).data, status=200)
+    
+
+class MyInterviewsListView(generics.ListAPIView):
+    """
+    GET /api/my/interviews/?status=pending|ongoing|completed  (optional)
+    Returns ONLY the authenticated student's interviews.
+    Sorted: upcoming first (by scheduled_time asc), then past (desc).
+    """
+    serializer_class = InterviewSerializer
+    permission_classes = [permissions.IsAuthenticated, IsStudent]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Interview.objects.filter(student=user)
+
+        # Optional status filter
+        status_param = self.request.query_params.get("status")
+        valid_status = {c[0] for c in Interview.STATUS_CHOICES}
+        if status_param:
+            if status_param not in valid_status:
+                # empty queryset for invalid status
+                return Interview.objects.none()
+            qs = qs.filter(status=status_param)
+
+        # Order: upcoming first (soonest), then past (newest)
+        upcoming = qs.filter(scheduled_time__gte=now()).order_by("scheduled_time")
+        past = qs.filter(scheduled_time__lt=now()).order_by("-scheduled_time")
+        return upcoming.union(past)
