@@ -5,14 +5,20 @@ from authentication.models import Interview, User
 class InterviewSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source="student.name", read_only=True)
     student_email = serializers.EmailField(source="student.email", read_only=True)
+    student_batch = serializers.CharField(source="student.batch_no", read_only=True)
+    student_center = serializers.CharField(source="student.center", read_only=True)
+    student_course = serializers.CharField(source="student.course_name", read_only=True)
 
     class Meta:
         model = Interview
         fields = [
             "id",
             "student",         # FK: student_id
-            "student_name",    # derived
-            "student_email",   # derived
+            "student_name",
+            "student_email",
+            "student_batch",
+            "student_center",
+            "student_course",
             "jd",
             "difficulty_level",
             "scheduled_time",
