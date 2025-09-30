@@ -50,17 +50,6 @@ from authentication.models import Report
 
 
 
-
-
-# class ReportSerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = Report
-#         fields = "__all__"
-#         read_only_fields = ("id", "created_at", "interview")
-
-
-
-
 class ReportSerializer(serializers.ModelSerializer):
     # student fields pulled via interview → student
     student_id = serializers.IntegerField(source="interview.student.id", read_only=True)
@@ -69,6 +58,7 @@ class ReportSerializer(serializers.ModelSerializer):
     student_batch = serializers.CharField(source="interview.student.batch_no", read_only=True)
     student_center = serializers.CharField(source="interview.student.center", read_only=True)
     student_course = serializers.CharField(source="interview.student.course_name", read_only=True)
+    scheduled_time = serializers.DateTimeField(source="interview.scheduled_time", read_only=True)
 
     class Meta:
         model = Report
@@ -83,6 +73,7 @@ class ReportSerializer(serializers.ModelSerializer):
             "student_batch",
             "student_center",
             "student_course",
+            "scheduled_time"
         ]
 
     def get_field_names(self, declared_fields, info):
