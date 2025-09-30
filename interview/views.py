@@ -141,6 +141,31 @@ class IsAdminOrSuperAdmin(permissions.BasePermission):
         )
 
 
+
+# jd parser
+
+class ParseJDAPIView(APIView):
+    """
+    Upload a JD file and get back parsed text.
+    """
+    permission_classes = [IsAdminOrSuperAdmin]
+
+    def post(self, request, *args, **kwargs):
+        jd_file = request.FILES.get("jd")
+        if not jd_file:
+            return Response({"error": "JD file is required (field: jd)"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            jd_text = process_jd_file(jd_file)  # <-- your existing parser
+        except Exception as e:
+            return Response({"error": f"Failed to parse JD file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"jd_text": jd_text}, status=status.HTTP_200_OK)
+
+
+
+
+
 # -----------------------------
 # Admin-only: Schedule Interview
 # -----------------------------
@@ -148,30 +173,22 @@ class ScheduleInterviewAPIView(APIView):
     """
     Admin schedules an interview for a student.
     Requires:
-      - form-data: student (id), jd (file) OR jd_text
+      - student (id)
+      - jd_text (parsed JD text from ParseJDAPIView)
       - optional: difficulty_level, duration_minutes, scheduled_time
     """
     permission_classes = [IsAdminOrSuperAdmin]
 
     def post(self, request, *args, **kwargs):
-        # Target student (must be role=student)
         student_id = request.data.get("student")
-        if not student_id:
-            return Response({"error": "Student ID is required (field: student)"}, status=status.HTTP_400_BAD_REQUEST)
-        student = get_object_or_404(User, id=student_id, role="student")
-
-        # JD: accept file or raw text (prefer file if both provided)
-        jd_file = request.FILES.get("jd")
         jd_text = request.data.get("jd_text")
 
-        if not jd_file and not jd_text:
-            return Response({"error": "Provide JD file (jd) or jd_text"}, status=status.HTTP_400_BAD_REQUEST)
+        if not student_id:
+            return Response({"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+        student = get_object_or_404(User, id=student_id, role="student")
 
-        if jd_file:
-            try:
-                jd_text = process_jd_file(jd_file)
-            except Exception as e:
-                return Response({"error": f"Failed to parse JD file: {e}"}, status=status.HTTP_400_BAD_REQUEST)
+        if not jd_text:
+            return Response({"error": "jd_text is required. Parse JD first."}, status=status.HTTP_400_BAD_REQUEST)
 
         difficulty_level = request.data.get("difficulty_level", "beginner")
         valid_diff = [c[0] for c in Interview.DIFFICULTY_CHOICES]
@@ -188,7 +205,6 @@ class ScheduleInterviewAPIView(APIView):
 
         scheduled_time = request.data.get("scheduled_time") or timezone.now()
 
-        # Generate questions (do not block if it fails)
         try:
             questions = generate_interview_questions(jd_text, difficulty_level)
         except Exception:
@@ -212,6 +228,8 @@ class ScheduleInterviewAPIView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
 
 
 # -----------------------------
@@ -367,6 +385,8 @@ class ReportDetailView(generics.RetrieveAPIView):
         if not _can_view_or_own(request.user, report.interview):
             return Response({"error": "Forbidden"}, status=403)
         return Response(self.get_serializer(report).data, status=200)
+
+
 
 
 class ReportByInterviewView(generics.GenericAPIView):
