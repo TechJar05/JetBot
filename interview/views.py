@@ -203,7 +203,7 @@ class ScheduleInterviewAPIView(APIView):
         except (TypeError, ValueError):
             return Response({"error": "duration_minutes must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
 
-        scheduled_time = request.data.get("scheduled_time") or timezone.now()
+        scheduled_time = request.data.get("scheduled_time")
 
         try:
             questions = generate_interview_questions(jd_text, difficulty_level)
