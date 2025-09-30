@@ -128,3 +128,23 @@ class AnalyticsExport(models.Model):
  
     def __str__(self):
         return f"Export {self.id} for Interview {self.interview.id}"
+
+
+
+from django.db import models
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+import datetime
+
+User = get_user_model()
+
+class PasswordResetOTP(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="password_reset_otps")
+    otp = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def is_expired(self):
+        return self.created_at + datetime.timedelta(minutes=10) < timezone.now()
+
+    def __str__(self):
+        return f"OTP {self.otp} for {self.user.email}"

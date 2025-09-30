@@ -226,3 +226,12 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'techjartechnologies@gmail.com'         # Sender email
+EMAIL_HOST_PASSWORD = 'lodw zlft vhrk ujnt'  # App-specific password
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
