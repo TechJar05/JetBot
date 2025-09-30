@@ -567,6 +567,9 @@ class StudentAnalyticsAPIView(APIView):
 
 
 
+
+
+
 #  admin side table data 
 class InterviewTableAPIView(APIView):
     permission_classes = [IsAuthenticated]
