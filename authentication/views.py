@@ -124,15 +124,25 @@ class SendOTPAPIView(APIView):
         return Response({"data": "OTP sent to email"}, status=status.HTTP_200_OK)
 
 
-# 2️⃣ Verify OTP
+# 2️⃣ Verify OTP with email
 class VerifyOTPAPIView(APIView):
     def post(self, request):
+        email = request.data.get("email")
         otp = request.data.get("otp")
-        if not otp:
-            return Response({"error": "OTP is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not email or not otp:
+            return Response(
+                {"error": "Email and OTP are required"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
-            otp_obj = PasswordResetOTP.objects.filter(otp=otp).latest("created_at")
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            otp_obj = PasswordResetOTP.objects.filter(user=user, otp=otp).latest("created_at")
         except PasswordResetOTP.DoesNotExist:
             return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
 
