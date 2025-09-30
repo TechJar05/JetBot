@@ -49,11 +49,50 @@ from rest_framework import serializers
 from authentication.models import Report
 
 
+
+
+
+# class ReportSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = Report
+#         fields = "__all__"
+#         read_only_fields = ("id", "created_at", "interview")
+
+
+
+
 class ReportSerializer(serializers.ModelSerializer):
+    # student fields pulled via interview → student
+    student_id = serializers.IntegerField(source="interview.student.id", read_only=True)
+    student_name = serializers.CharField(source="interview.student.name", read_only=True)
+    student_email = serializers.EmailField(source="interview.student.email", read_only=True)
+    student_batch = serializers.CharField(source="interview.student.batch_no", read_only=True)
+    student_center = serializers.CharField(source="interview.student.center", read_only=True)
+    student_course = serializers.CharField(source="interview.student.course_name", read_only=True)
+
     class Meta:
         model = Report
-        fields = "__all__"
+        fields = "__all__"  # keep all original Report fields
         read_only_fields = ("id", "created_at", "interview")
+
+        # add student fields explicitly
+        extra_fields = [
+            "student_id",
+            "student_name",
+            "student_email",
+            "student_batch",
+            "student_center",
+            "student_course",
+        ]
+
+    def get_field_names(self, declared_fields, info):
+        """Ensure extra fields are included with __all__"""
+        expanded_fields = super().get_field_names(declared_fields, info)
+        if hasattr(self.Meta, "extra_fields"):
+            return expanded_fields + self.Meta.extra_fields
+        return expanded_fields
+
+
 
 
 from rest_framework import serializers
