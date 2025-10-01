@@ -3,5 +3,9 @@ from django.urls import re_path
 from . import consumers
 
 websocket_urlpatterns = [
-    re_path(r"ws/interview/(?P<interview_id>\d+)/$", consumers.InterviewConsumer.as_asgi()),
+    # TTS WebSocket: asks questions via ElevenLabs
+    re_path(r'ws/tts/(?P<interview_id>\d+)/$', consumers.TTSConsumer.as_asgi()),
+
+    # STT WebSocket: records answers via AssemblyAI
+    re_path(r'ws/stt/(?P<interview_id>\d+)/$', consumers.STTConsumer.as_asgi()),
 ]

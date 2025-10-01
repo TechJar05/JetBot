@@ -1,199 +1,178 @@
-# interview/consumers.py
 import json
 import asyncio
+import websockets
+import aiohttp
+from urllib.parse import urlencode
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from django.conf import settings
-from dotenv import load_dotenv
-
-from all_services.assemblyai_stream import AssemblyAIStream
-from all_services.tts_services import stream_tts
+from django.contrib.auth.models import AnonymousUser
 from authentication.models import Interview
 
-load_dotenv()
-DEBUG_WS = True
+# -------------------------
+# CONFIG
+# -------------------------
+ELEVENLABS_API_KEY = "sk_fd451ccf28b2fca77d0a86297894245f614c0a403c2a0e14"
+VOICE_ID = "vWovrQmwpIKB9L65OBCh"
+MODEL_ID = "eleven_flash_v2_5"
+
+ASSEMBLYAI_API_KEY = "32c3f5ecfc734011b13dd74e53f71f8c"
 
 
-class InterviewConsumer(AsyncWebsocketConsumer):
+# -------------------------
+# HELPERS
+# -------------------------
+@database_sync_to_async
+def get_interview(interview_id, user):
+    try:
+        return Interview.objects.get(id=interview_id, student=user)
+    except Interview.DoesNotExist:
+        return None
+
+@database_sync_to_async
+def save_full_transcript(interview, transcripts):
+    """
+    Save Q&A pairs to Interview.full_transcript
+    """
+    full_text = "\n".join([f"Q{i+1}: {q}\nA{i+1}: {a}" for i, (q, a) in enumerate(transcripts)])
+    interview.full_transcript = full_text
+    interview.save(update_fields=["full_transcript"])
+
+
+# ============================================================
+# TTS CONSUMER
+# ============================================================
+class TTSConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.interview_id = self.scope["url_route"]["kwargs"]["interview_id"]
-        self.user = self.scope.get("user")
-        self.dg = None
-        self.questions = []
-        self.current_q = 0
+        self.interview_id = self.scope['url_route']['kwargs'].get("interview_id")
+        self.user = self.scope.get("user", AnonymousUser())
 
-        # ✅ Only students can connect
-        if not self.user or not self.user.is_authenticated or getattr(self.user, "role", None) != "student":
-            await self.close(code=4401)
+        self.interview = await get_interview(self.interview_id, self.user)
+        if not self.interview:
+            await self.close(code=4001)
             return
 
-        # ✅ Load interview & verify student ownership
-        interview = await self.get_interview()
-        if not interview:
-            await self.close(code=4404)  # not found / not allowed
-            return
+        self.questions = self.interview.questions or []
+        self.current_index = 0
+        self.transcripts = []  # store Q&A before saving
+        await self.accept()
+        print(f"✅ TTS connected for interview {self.interview_id}")
 
-        # ✅ Load questions from DB
-        self.questions = interview.questions or []
-        if not self.questions:
-            await self.close(code=4404)
+    async def disconnect(self, close_code):
+        if self.transcripts:
+            await save_full_transcript(self.interview, self.transcripts)
+        print(f"❌ TTS disconnected for interview {self.interview_id}")
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        command = data.get("command")
+
+        if command == "next":
+            if self.current_index < len(self.questions):
+                question = self.questions[self.current_index]
+                self.current_index += 1
+                asyncio.create_task(self._send_question(question))
+            else:
+                await self.send(json.dumps({"isFinal": True, "text": "Interview Complete"}))
+
+        elif command == "answer":
+            answer = data.get("text", "")
+            if self.current_index > 0:
+                question = self.questions[self.current_index - 1]
+                self.transcripts.append((question, answer))
+
+    async def _send_question(self, input_text: str):
+        uri = f"wss://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}/stream-input?model_id={MODEL_ID}"
+        try:
+            async with websockets.connect(uri) as ws:
+                # initial handshake
+                init_message = {
+                    "text": " ",
+                    "voice_settings": {"stability": 0.5, "similarity_boost": 0.8, "use_speaker_boost": False, "speed": 1.0},
+                    "generation_config": {"chunk_length_schedule": [120, 160, 250, 290]},
+                    "xi_api_key": ELEVENLABS_API_KEY,
+                }
+                await ws.send(json.dumps(init_message))
+                await ws.send(json.dumps({"text": input_text}))
+                await ws.send(json.dumps({"text": ""}))
+
+                async for message in ws:
+                    data = json.loads(message)
+                    if data.get("audio"):
+                        await self.send(json.dumps({"audio": data["audio"], "isFinal": data.get("isFinal", False)}))
+                    elif data.get("isFinal"):
+                        await self.send(json.dumps({"isFinal": True, "text": input_text}))
+                        break
+                    elif data.get("error"):
+                        await self.send(json.dumps({"error": data["error"]}))
+                        break
+        except Exception as e:
+            await self.send(json.dumps({"error": f"ElevenLabs connection failed: {str(e)}"}))
+
+
+# ============================================================
+# STT CONSUMER
+# ============================================================
+class STTConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.interview_id = self.scope['url_route']['kwargs'].get("interview_id")
+        self.user = self.scope.get("user", AnonymousUser())
+
+        self.interview = await get_interview(self.interview_id, self.user)
+        if not self.interview:
+            await self.close(code=4001)
             return
 
         await self.accept()
+        print(f"✅ STT connected for interview {self.interview_id}")
 
-        api_key = settings.DEEPGRAM_API_KEY
-        if not api_key:
-            await self.safe_send({"type": "error", "message": "Deepgram API key missing"})
-            await self.close()
-            return
-
-        # ✅ Deepgram transcript callback
-        async def on_transcript(payload: dict):
-            try:
-                if payload.get("type") == "Turn":
-                    transcript = payload.get("transcript", "")
-                    end_of_turn = payload.get("end_of_turn", False)
-
-                    if transcript:
-                        await self.safe_send({
-                            "type": "transcript",
-                            "final": end_of_turn,
-                            "text": transcript
-                        })
-                        if end_of_turn:
-                            await self.save_answer(transcript)
-                            await self.safe_send({
-                                "type": "answer_complete",
-                                "message": "Answer captured. Continue or move to next question?"
-                            })
-
-                elif DEBUG_WS:
-                    await self.safe_send({"type": "info", "message": f"DG:{payload.get('type')}"})
-            except Exception as e:
-                if DEBUG_WS:
-                    await self.safe_send({"type": "error", "message": f"Transcript error: {e}"})
-
-        # ✅ Start Deepgram stream
-        self.stt = AssemblyAIStream(settings.ASSEMBLYAI_API_KEY, sample_rate=16000, on_transcript=on_transcript)
-        try:
-            await self.stt.start()
-        except Exception as e:
-            await self.safe_send({"type": "error", "message": f"Deepgram failed: {e}"})
-            await self.close()
-            return
-
-        await asyncio.sleep(0.05)
-        await self.safe_send({"type": "info", "message": f"Interview {self.interview_id} connected"})
-
-    async def receive(self, text_data=None, bytes_data=None):
-        # ✅ Handle raw audio chunks
-        if bytes_data and self.stt:
-            try:
-                if len(bytes_data) > 512 * 1024:  # limit chunk size
-                    return
-                await self.stt.send_audio(bytes_data)
-                if DEBUG_WS:
-                    await self.safe_send({
-                        "type": "info",
-                        "message": f"Audio chunk {len(bytes_data)} bytes"
-                    })
-            except Exception as e:
-                await self.safe_send({"type": "error", "message": f"Audio send failed: {e}"})
-            return
-
-        # ✅ Handle JSON messages
-        if text_data:
-            try:
-                msg = json.loads(text_data)
-            except Exception:
-                await self.safe_send({"type": "error", "message": "Invalid JSON"})
-                return
-
-            if msg.get("type") == "control":
-                action = msg.get("action")
-                if action == "stop":
-                    await self.safe_send({"type": "info", "message": "Stopping interview"})
-                    try:
-                        if self.stt:
-                            await self.stt.flush_and_close()
-                    finally:
-                        await self.close()
-
-                elif action == "start_interview":
-                    await self.next_question()
-
-                elif action == "next_question":
-                    await self.next_question()
-
-                elif action == "continue_answer":
-                    await self.safe_send({"type": "info", "message": "Continuing same answer..."})
-
-                elif DEBUG_WS:
-                    await self.safe_send({"type": "info", "message": f"Unknown control: {action}"})
-
-            else:
-                await self.safe_send({"type": "echo", "payload": msg})
-
-    async def next_question(self):
-        if self.current_q >= len(self.questions):
-            await self.safe_send({"type": "info", "message": "Interview complete"})
-            return
-
-        question = self.questions[self.current_q]
-        self.current_q += 1
-
-        # Save to DB
-        await self.save_question(question)
-
-        # ✅ Immediately tell frontend which question is being asked
-        await self.safe_send({
-            "type": "question",
-            "text": question
-        })
-
-        # Stream TTS and forward audio
-        async def forward_chunk(audio_b64, is_final):
-            await self.safe_send({
-                "type": "tts_chunk",
-                "audio": audio_b64,
-                "isFinal": is_final,
-                "text": question if is_final else None
-            })
-
-        await stream_tts(question, forward_chunk)
-
-
-    # -------------------------
-    # DB Helpers
-    # -------------------------
-    @database_sync_to_async
-    def get_interview(self):
-        try:
-            return Interview.objects.get(id=self.interview_id, student=self.user)
-        except Interview.DoesNotExist:
-            return None
-
-    @database_sync_to_async
-    def save_question(self, text):
-        interview = Interview.objects.get(id=self.interview_id, student=self.user)
-        interview.full_transcript = (interview.full_transcript or "") + f"\nQ: {text}"
-        interview.save()
-
-    @database_sync_to_async
-    def save_answer(self, text):
-        interview = Interview.objects.get(id=self.interview_id, student=self.user)
-        interview.full_transcript = (interview.full_transcript or "") + f"\nA: {text}"
-        interview.save()
+        # connect to AssemblyAI
+        params = {"sample_rate": 16000, "format_turns": True}
+        url = f"wss://streaming.assemblyai.com/v3/ws?{urlencode(params)}"
+        self.session = aiohttp.ClientSession()
+        self.assembly_ws = await self.session.ws_connect(url, headers={"Authorization": ASSEMBLYAI_API_KEY})
+        self.receiver_task = asyncio.create_task(self._receive_from_assembly())
 
     async def disconnect(self, close_code):
-        try:
-            if self.stt:
-               await self.stt.flush_and_close()
-        except Exception:
-            pass
+        if hasattr(self, "assembly_ws") and not self.assembly_ws.closed:
+            await self.assembly_ws.send_json({"type": "Terminate"})
+            await self.assembly_ws.close()
+        if hasattr(self, "receiver_task"):
+            self.receiver_task.cancel()
+            try:
+                await self.receiver_task
+            except asyncio.CancelledError:
+                pass
+        if hasattr(self, "session") and not self.session.closed:
+            await self.session.close()
+        print(f"❌ STT disconnected for interview {self.interview_id}")
 
-    async def safe_send(self, data: dict):
+    async def receive(self, text_data=None, bytes_data=None):
         try:
-            await super().send(text_data=json.dumps(data))
-        except Exception:
+            if bytes_data:
+                if hasattr(self, "assembly_ws") and not self.assembly_ws.closed:
+                    await self.assembly_ws.send_bytes(bytes_data)
+            elif text_data:
+                msg = json.loads(text_data)
+                if msg.get("command") == "terminate":
+                    if hasattr(self, "assembly_ws") and not self.assembly_ws.closed:
+                        await self.assembly_ws.send_json({"type": "Terminate"})
+                    await self.close()
+        except Exception as e:
+            await self.send(json.dumps({"error": str(e)}))
+
+    async def _receive_from_assembly(self):
+        try:
+            async for msg in self.assembly_ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    await self.send(json.dumps(data))
+                elif msg.type == aiohttp.WSMsgType.BINARY:
+                    pass
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    break
+                elif msg.type == aiohttp.WSMsgType.CLOSED:
+                    break
+        except asyncio.CancelledError:
             pass
+        except Exception as e:
+            await self.send(json.dumps({"error": str(e)}))
