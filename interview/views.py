@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from authentication.models import Interview, User, Report
-from .serializers import InterviewSerializer, StudentSearchSerializer, ReportSerializer
+from .serializers import InterviewSerializer, StudentSearchSerializer, ReportSerializer,InterviewTableSerializer,VisualFeedbackSerializer,InterviewRatingsSerializer
 from .services import process_jd_file   # your PDF text extractor
 from all_services.question_generator import generate_interview_questions, generate_chat_completion # LLM question gen
 import json
@@ -141,6 +141,31 @@ class IsAdminOrSuperAdmin(permissions.BasePermission):
         )
 
 
+
+# jd parser
+
+class ParseJDAPIView(APIView):
+    """
+    Upload a JD file and get back parsed text.
+    """
+    permission_classes = [IsAdminOrSuperAdmin]
+
+    def post(self, request, *args, **kwargs):
+        jd_file = request.FILES.get("jd")
+        if not jd_file:
+            return Response({"error": "JD file is required (field: jd)"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            jd_text = process_jd_file(jd_file)  # <-- your existing parser
+        except Exception as e:
+            return Response({"error": f"Failed to parse JD file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"jd_text": jd_text}, status=status.HTTP_200_OK)
+
+
+
+
+
 # -----------------------------
 # Admin-only: Schedule Interview
 # -----------------------------
@@ -148,30 +173,22 @@ class ScheduleInterviewAPIView(APIView):
     """
     Admin schedules an interview for a student.
     Requires:
-      - form-data: student (id), jd (file) OR jd_text
+      - student (id)
+      - jd_text (parsed JD text from ParseJDAPIView)
       - optional: difficulty_level, duration_minutes, scheduled_time
     """
     permission_classes = [IsAdminOrSuperAdmin]
 
     def post(self, request, *args, **kwargs):
-        # Target student (must be role=student)
         student_id = request.data.get("student")
-        if not student_id:
-            return Response({"error": "Student ID is required (field: student)"}, status=status.HTTP_400_BAD_REQUEST)
-        student = get_object_or_404(User, id=student_id, role="student")
-
-        # JD: accept file or raw text (prefer file if both provided)
-        jd_file = request.FILES.get("jd")
         jd_text = request.data.get("jd_text")
 
-        if not jd_file and not jd_text:
-            return Response({"error": "Provide JD file (jd) or jd_text"}, status=status.HTTP_400_BAD_REQUEST)
+        if not student_id:
+            return Response({"error": "Student ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+        student = get_object_or_404(User, id=student_id, role="student")
 
-        if jd_file:
-            try:
-                jd_text = process_jd_file(jd_file)
-            except Exception as e:
-                return Response({"error": f"Failed to parse JD file: {e}"}, status=status.HTTP_400_BAD_REQUEST)
+        if not jd_text:
+            return Response({"error": "jd_text is required. Parse JD first."}, status=status.HTTP_400_BAD_REQUEST)
 
         difficulty_level = request.data.get("difficulty_level", "beginner")
         valid_diff = [c[0] for c in Interview.DIFFICULTY_CHOICES]
@@ -186,9 +203,8 @@ class ScheduleInterviewAPIView(APIView):
         except (TypeError, ValueError):
             return Response({"error": "duration_minutes must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
 
-        scheduled_time = request.data.get("scheduled_time") or timezone.now()
+        scheduled_time = request.data.get("scheduled_time")
 
-        # Generate questions (do not block if it fails)
         try:
             questions = generate_interview_questions(jd_text, difficulty_level)
         except Exception:
@@ -212,6 +228,8 @@ class ScheduleInterviewAPIView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
 
 
 # -----------------------------
@@ -369,6 +387,8 @@ class ReportDetailView(generics.RetrieveAPIView):
         return Response(self.get_serializer(report).data, status=200)
 
 
+
+
 class ReportByInterviewView(generics.GenericAPIView):
     """
     GET /api/reports/by-interview/<interview_id>/
@@ -416,3 +436,173 @@ class MyInterviewsListView(generics.ListAPIView):
         upcoming = qs.filter(scheduled_time__gte=now()).order_by("scheduled_time")
         past = qs.filter(scheduled_time__lt=now()).order_by("-scheduled_time")
         return upcoming.union(past)
+
+
+
+
+
+from django.db.models import Count
+from django.db.models.functions import TruncDate
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+#  admin side analytic report
+class InterviewAnalyticsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        data = {}
+
+        # 1. Interview Status Distribution (Completed vs Scheduled)
+        status_counts = Interview.objects.values("status").annotate(count=Count("id"))
+
+        completed_count = 0
+        scheduled_count = 0
+
+        for item in status_counts:
+            if item["status"] == "completed":
+                completed_count += item["count"]
+            else:  # pending + ongoing = scheduled
+                scheduled_count += item["count"]
+
+        total_interviews = completed_count + scheduled_count
+
+        status_distribution = []
+        if total_interviews > 0:
+            status_distribution = [
+                {
+                    "status": "completed",
+                    "count": completed_count,
+                    "percentage": round((completed_count / total_interviews) * 100, 2),
+                },
+                {
+                    "status": "scheduled",
+                    "count": scheduled_count,
+                    "percentage": round((scheduled_count / total_interviews) * 100, 2),
+                },
+            ]
+
+        data["status_distribution"] = status_distribution
+
+        # 2. Difficulty Level Distribution
+        difficulty_counts = Interview.objects.values("difficulty_level").annotate(count=Count("id"))
+        data["difficulty_distribution"] = list(difficulty_counts)
+
+        # 3. Top 3 Centers by Student Count
+        top_centers = (
+            User.objects.values("center")
+            .annotate(student_count=Count("id"))
+            .order_by("-student_count")[:3]
+        )
+        data["top_centers"] = list(top_centers)
+
+        # 4. Daily Interview Count
+        daily_counts = (
+            Interview.objects.annotate(date=TruncDate("scheduled_time"))
+            .values("date")
+            .annotate(count=Count("id"))
+            .order_by("date")
+        )
+        data["daily_interview_count"] = list(daily_counts)
+
+        return Response(data)
+
+
+
+
+#  student dashboard analytic report
+class StudentAnalyticsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, student_id):
+        # Ensure student exists
+        try:
+            student = User.objects.get(id=student_id, role='student')
+        except User.DoesNotExist:
+            return Response({"error": "Student not found"}, status=404)
+        
+        # Get all completed interviews for this student
+        completed_interviews = Interview.objects.filter(student=student, status='completed')
+        
+        if not completed_interviews.exists():
+            return Response({
+                "total_average_rating": 0,
+                "completed_interviews": 0,
+                "skill_breakdown": {
+                    "technical": 0,
+                    "communication": 0,
+                    "problem_solving": 0,
+                    "time_mgmt": 0
+                },
+                "interview_ratings": []
+            })
+
+        # Collect ratings from each interview
+        ratings_list = []
+        total_technical = total_communication = total_problem = total_time = 0
+        count = 0
+        
+        for interview in completed_interviews:
+            report = getattr(interview, "report", None)
+            if report and report.ratings:
+                r = report.ratings
+                # Assuming ratings keys: technical, communication, problem_solving, time_mgmt
+                technical = r.get('technical', 0)
+                communication = r.get('communication', 0)
+                problem_solving = r.get('problem_solving', 0)
+                time_mgmt = r.get('time_mgmt', 0)
+                
+                # Rating out of 10 (sum all / 4)
+                avg_rating = round((technical + communication + problem_solving + time_mgmt)/4, 2)
+                ratings_list.append({
+                    "interview_id": interview.id,
+                    "rating_out_of_10": avg_rating
+                })
+                
+                # Sum for overall average
+                total_technical += technical
+                total_communication += communication
+                total_problem += problem_solving
+                total_time += time_mgmt
+                count += 1
+        
+        # Total average rating across all interviews
+        total_average_rating = round((total_technical + total_communication + total_problem + total_time) / (count*4), 2)
+        
+        # Skill breakdown average
+        skill_breakdown = {
+            "technical": round(total_technical / count, 2),
+            "communication": round(total_communication / count, 2),
+            "problem_solving": round(total_problem / count, 2),
+            "time_mgmt": round(total_time / count, 2)
+        }
+        
+        return Response({
+            "total_average_rating": total_average_rating,
+            "completed_interviews": count,
+            "skill_breakdown": skill_breakdown,
+            "interview_ratings": ratings_list
+        })
+
+
+
+
+
+
+#  admin side table data 
+class InterviewTableAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        interviews = Interview.objects.select_related('student', 'report').all().order_by('-scheduled_time')
+
+        interview_table = InterviewTableSerializer(interviews, many=True).data
+        interview_ratings = InterviewRatingsSerializer(interviews, many=True).data
+        visual_feedback = VisualFeedbackSerializer(interviews, many=True).data
+
+        return Response({
+            "interview_table": interview_table,
+            "interview_ratings": interview_ratings,
+            "visual_feedback": visual_feedback
+        })

@@ -29,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-msjm_2ug@g_xav@yf8*!j1wjudj4#45g6alb)0g(+)vt2mi$5j'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
@@ -44,6 +44,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://jetbot.tjdem.online",
     "https://your-react-domain.com",      
     "https://www.your-react-domain.com", 
+    "https://jet-ibot.tjdem.online"
 ]
 
 
@@ -56,7 +57,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",             
     "http://127.0.0.1:3000",              
     "http://127.0.0.1:5173",              
-    "http://127.0.0.1:5174",              
+    "http://127.0.0.1:5174", 
+    "https://jet-ibot.tjdem.online"             
 ]
 
 # If you use cookies (session/auth) across origins:
@@ -191,10 +193,9 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
-
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'   # Indian Standard Time (IST)
 
 USE_I18N = True
 
@@ -226,3 +227,12 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'techjartechnologies@gmail.com'         # Sender email
+EMAIL_HOST_PASSWORD = 'lodw zlft vhrk ujnt'  # App-specific password
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
