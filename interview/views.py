@@ -10,6 +10,14 @@ from .serializers import InterviewSerializer, StudentSearchSerializer, ReportSer
 from .services import process_jd_file   # your PDF text extractor
 from all_services.question_generator import generate_interview_questions, generate_chat_completion # LLM question gen
 import json
+from all_services.visual_feedback_service import analyze_frames_aggregated
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+from authentication.models import Interview
+from all_services.frames import append_frames_to_cache,pop_frames_from_cache
+from typing import Any, Dict, List, Optional
 
 def _can_view_or_own(user: User, interview: Interview) -> bool:
     if not user or not user.is_authenticated:
@@ -28,14 +36,16 @@ class IsStudent(permissions.BasePermission):
         )
         
 
-def _create_report_for_interview(interview: Interview) -> Report:
+# views.py - Updated _create_report_for_interview function
+
+def _create_report_for_interview(
+    interview: Interview,
+    frames: Optional[List[str]] = None,
+) -> Report:
     """
-    Idempotent report creation:
-      - returns existing Report if present
-      - raises ValueError if transcript missing
-      - raises RuntimeError if LLM fails
+    Create comprehensive interview report with visual feedback.
+    Falls back gracefully if visual analysis fails.
     """
-    # return existing if any
     try:
         return interview.report
     except Report.DoesNotExist:
@@ -45,12 +55,12 @@ def _create_report_for_interview(interview: Interview) -> Report:
     if not transcription:
         raise ValueError("Interview has no transcription")
 
+    # Generate text-based analysis first (this always works)
     prompt = f"""
     You are an expert HR interview evaluator.
     Analyze the following interview transcription and produce STRICT JSON with keys:
     - key_strengths: array of objects: {{ "area": str, "example": str, "rating": int (1-5) }}
     - areas_for_improvement: array of objects: {{ "area": str, "suggestions": str }}
-    - visual_feedback: array of objects (optional): {{ "appearance": str, "eye_contact": str, "body_language": str }}
     - ratings: object: {{
         "technical": int (1-5),
         "communication": int (1-5),
@@ -91,13 +101,7 @@ def _create_report_for_interview(interview: Interview) -> Report:
                             },
                             "areas_for_improvement": {
                                 "type": "array",
-                                "items": {
-                                    "type": "object"},
-                            },
-                            "visual_feedback": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object"}
+                                "items": {"type": "object"}
                             },
                             "ratings": {
                                 "type": "object",
@@ -117,17 +121,95 @@ def _create_report_for_interview(interview: Interview) -> Report:
                 }
             }
         )
-        data = json.loads(raw_json)
+        data: Dict[str, Any] = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
     except Exception as exc:
         raise RuntimeError(f"LLM failed: {exc}")
 
+    key_strengths = data.get("key_strengths")
+    areas_for_improvement = data.get("areas_for_improvement")
+    ratings = data.get("ratings")
+
+    # Fetch frames from Redis if not provided
+    if frames is None:
+        frames = pop_frames_from_cache(interview_id=interview.id, user_id=interview.student_id)
+    frames = (frames or [])[:10]
+
+    # Initialize visual feedback
+    visual_feedback = None
+    
+    if frames and len(frames) > 0:
+        print(f"Analyzing {len(frames)} frames for visual feedback...")
+        
+        try:
+            # Primary method: Analyze frames (environment-focused)
+            visual_feedback = analyze_frames_aggregated(frames)
+            
+            # Check if we got a valid response
+            if visual_feedback.get("status") in ["error", "generic"]:
+                print(f"Primary visual analysis returned status: {visual_feedback.get('status')}")
+                print("Attempting metadata-based analysis as supplement...")
+                
+                # Add transcript-based communication analysis as supplement
+                try:
+                    from all_services.visual_feedback_service import analyze_interview_metadata
+                    duration = getattr(interview, 'duration_minutes', None)
+                    metadata_analysis = analyze_interview_metadata(transcription, duration)
+                    
+                    # Combine both analyses
+                    visual_feedback["communication_analysis"] = metadata_analysis
+                    visual_feedback["analysis_type"] = "hybrid"
+                    
+                except Exception as meta_exc:
+                    print(f"Metadata analysis failed: {meta_exc}")
+            else:
+                print(f"Visual feedback analysis successful: {visual_feedback.get('status')}")
+                visual_feedback["analysis_type"] = "visual"
+                
+        except Exception as vf_exc:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Visual feedback exception: {vf_exc}")
+            print(f"Traceback: {error_trace}")
+            
+            # Fallback to metadata-only analysis
+            try:
+                from all_services.visual_feedback_service import analyze_interview_metadata
+                print("Using metadata-only analysis as fallback...")
+                visual_feedback = analyze_interview_metadata(transcription)
+                visual_feedback["analysis_type"] = "metadata_only"
+                visual_feedback["note"] = "Visual analysis unavailable, using transcript-based assessment"
+            except Exception as fallback_exc:
+                print(f"All analysis methods failed: {fallback_exc}")
+                visual_feedback = {
+                    "status": "unavailable",
+                    "message": "Visual feedback could not be generated",
+                    "frames_captured": len(frames),
+                    "analysis_type": "none"
+                }
+    else:
+        print("No frames available for visual feedback")
+        visual_feedback = {
+            "status": "no_frames",
+            "message": "No video frames were captured during the interview",
+            "note": "Ensure camera permissions are granted and frames are being captured",
+            "analysis_type": "none"
+        }
+
+    # Create report with all data
     report = Report.objects.create(
         interview=interview,
-        key_strengths=data.get("key_strengths"),
-        areas_for_improvement=data.get("areas_for_improvement"),
-        visual_feedback=data.get("visual_feedback"),
-        ratings=data.get("ratings"),
+        key_strengths=key_strengths,
+        areas_for_improvement=areas_for_improvement,
+        ratings=ratings,
+        visual_feedback=visual_feedback,
+        visual_frames=frames or None,
     )
+
+    if interview.status != "completed":
+        interview.status = "completed"
+        interview.save(update_fields=["status"])
+
+    print(f"Report created successfully with visual feedback type: {visual_feedback.get('analysis_type', 'unknown')}")
     return report
 # -----------------------------
 # Permissions
@@ -309,26 +391,66 @@ class ReportCreateView(generics.CreateAPIView):
         return Response(ReportSerializer(report).data, status=201)
 
 
+# class CompleteInterviewAndGenerateReportAPIView(APIView):
+#     """
+#     POST /api/interviews/<interview_id>/complete-and-generate-report/
+#     Marks interview completed (if not already) and creates the report (idempotent).
+#     Who can call: student (owner), admin, super_admin.
+#     """
+#     permission_classes = [permissions.IsAuthenticated]
+
+#     def post(self, request, interview_id, *args, **kwargs):
+#         interview = get_object_or_404(
+#             Interview.objects.select_related("student"), id=interview_id
+#         )
+
+#         if not _can_view_or_own(request.user, interview):
+#             return Response({"error": "Forbidden"}, status=403)
+
+#         if interview.status != "completed":
+#             interview.status = "completed"
+#             interview.save(update_fields=["status"])
+
+#         try:
+#             report = _create_report_for_interview(interview)
+#             created = True
+#         except ValueError as ve:
+#             return Response({"error": str(ve)}, status=400)
+#         except RuntimeError as re:
+#             return Response({"error": str(re)}, status=500)
+#         except Exception:
+#             # if already created in race condition, return it
+#             try:
+#                 report = interview.report
+#                 created = False
+#             except Report.DoesNotExist:
+#                 return Response({"error": "Unknown error creating report"}, status=500)
+
+#         return Response(ReportSerializer(report).data, status=201 if created else 200)
+
 class CompleteInterviewAndGenerateReportAPIView(APIView):
     """
+    Complete interview and generate comprehensive report.
     POST /api/interviews/<interview_id>/complete-and-generate-report/
-    Marks interview completed (if not already) and creates the report (idempotent).
-    Who can call: student (owner), admin, super_admin.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, interview_id, *args, **kwargs):
         interview = get_object_or_404(
-            Interview.objects.select_related("student"), id=interview_id
+            Interview.objects.select_related("student"), 
+            id=interview_id
         )
 
+        # Permission check
         if not _can_view_or_own(request.user, interview):
             return Response({"error": "Forbidden"}, status=403)
 
+        # Update status if needed
         if interview.status != "completed":
             interview.status = "completed"
             interview.save(update_fields=["status"])
 
+        # Generate report (idempotent)
         try:
             report = _create_report_for_interview(interview)
             created = True
@@ -336,15 +458,27 @@ class CompleteInterviewAndGenerateReportAPIView(APIView):
             return Response({"error": str(ve)}, status=400)
         except RuntimeError as re:
             return Response({"error": str(re)}, status=500)
-        except Exception:
-            # if already created in race condition, return it
+        except Exception as e:
+            # Check if report exists (race condition)
             try:
                 report = interview.report
                 created = False
             except Report.DoesNotExist:
-                return Response({"error": "Unknown error creating report"}, status=500)
+                import traceback
+                print(f"Report creation failed: {e}")
+                print(traceback.format_exc())
+                return Response(
+                    {"error": "Failed to create report"}, 
+                    status=500
+                )
 
-        return Response(ReportSerializer(report).data, status=201 if created else 200)
+        response_data = ReportSerializer(report).data
+        response_data["created"] = created
+        
+        return Response(
+            response_data, 
+            status=201 if created else 200
+        )
 
 
 from .serializers import ReportListSerializer
@@ -606,3 +740,52 @@ class InterviewTableAPIView(APIView):
             "interview_ratings": interview_ratings,
             "visual_feedback": visual_feedback
         })
+
+
+class UploadFramesAPIView(APIView):
+    """
+    Upload video frames during interview for visual feedback analysis.
+    POST /api/interviews/<interview_id>/upload-frames/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, interview_id):
+        images = request.data.get("images", [])
+        if not isinstance(images, list) or not images:
+            return Response(
+                {"error": "No frames provided"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            interview = Interview.objects.get(id=interview_id, student=request.user)
+        except Interview.DoesNotExist:
+            return Response(
+                {"error": "Interview not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Validate and cap frames
+        valid_images = []
+        for img in images[:10]:  # Max 10 frames
+            if isinstance(img, str) and len(img) > 100:  # Basic validation
+                valid_images.append(img)
+        
+        if not valid_images:
+            return Response(
+                {"error": "No valid frames provided"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Store to Redis
+        total = append_frames_to_cache(
+            interview_id=interview.id, 
+            user_id=request.user.id, 
+            new_frames=valid_images
+        )
+
+        return Response({
+            "success": True, 
+            "stored": total,
+            "frames_received": len(valid_images)
+        }, status=status.HTTP_200_OK)

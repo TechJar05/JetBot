@@ -103,6 +103,7 @@ class Report(models.Model):
     key_strengths = models.JSONField(null=True, blank=True)  # [{"area": "DSA", "example": "...", "rating": 4}]
     areas_for_improvement = models.JSONField(null=True, blank=True)  # [{"area": "Comm", "suggestions": "..."}]
     visual_feedback = models.JSONField(null=True, blank=True)  # [{"appearance": "Formal", "eye_contact": "Good"}]
+    visual_frames = models.JSONField(null=True, blank=True) 
     ratings = models.JSONField(null=True, blank=True)  # {"technical":4,"communication":3,"problem_solving":4,"time_mgmt":3,"total":14}
  
     created_at = models.DateTimeField(auto_now_add=True)

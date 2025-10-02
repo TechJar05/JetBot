@@ -81,6 +81,8 @@ CORS_ALLOW_HEADERS = list({
 DEEPGRAM_API_KEY=os.getenv('DEEPGRAM_API_KEY')
 OPENAI_API_KEY=os.getenv('OPENAI_API_KEY')
 ASSEMBLYAI_API_KEY = "d26316b442e54e1fb75ae349d78cd5be"
+GOOGLE_API_KEY = "AIzaSyBzlibPdnK-c2W3C2imv4QD2K_NsTzs2IA"
+GEMINI_MODEL = "gemini-2.5-flash"   
 
 
 
@@ -151,7 +153,7 @@ REST_FRAMEWORK = {
 
 DATABASES = {
     'default': dj_database_url.parse(
-        "postgresql://jetbot:fTJTZWhsrBCKO3AurjBkyS58Dv3UJRsF@dpg-d35r9b8dl3ps739694sg-a.oregon-postgres.render.com/jetbot_20q0"
+        "postgresql://jetbot_2:Z9oSHm9727xhaDKuelJru47f0SvHxzwQ@dpg-d3f96lripnbc73a37reg-a.oregon-postgres.render.com/jetbot_2"
     )
 }
 
@@ -200,13 +202,13 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-# STATIC_URL = '/static/'
-# STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
-STATIC_URL = "/static/"
-STATIC_ROOT = "/var/www/jetbot/static"
-MEDIA_URL = "/media/"
-MEDIA_ROOT = "/var/www/jetbot/media"
+# STATIC_URL = "/static/"
+# STATIC_ROOT = "/var/www/jetbot/static"
+# MEDIA_URL = "/media/"
+# MEDIA_ROOT = "/var/www/jetbot/media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

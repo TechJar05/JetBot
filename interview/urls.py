@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import ScheduleInterviewAPIView, SearchStudentAPIView,StudentDetailAPIView, ReportByInterviewView, ReportCreateView, ReportDetailView, ReportListView, CompleteInterviewAndGenerateReportAPIView, MyInterviewsListView,InterviewAnalyticsAPIView,StudentAnalyticsAPIView,InterviewTableAPIView,ParseJDAPIView
+from .views import ScheduleInterviewAPIView, SearchStudentAPIView,StudentDetailAPIView, ReportByInterviewView, ReportCreateView, ReportDetailView, ReportListView, CompleteInterviewAndGenerateReportAPIView, MyInterviewsListView,InterviewAnalyticsAPIView,StudentAnalyticsAPIView,InterviewTableAPIView,ParseJDAPIView, UploadFramesAPIView
 urlpatterns = [
     path("parse-jd/", ParseJDAPIView.as_view(), name="parse-jd"),
     path("schedule", ScheduleInterviewAPIView.as_view(), name="schedule-interview"),
@@ -18,4 +18,6 @@ urlpatterns = [
     path("analytics", InterviewAnalyticsAPIView.as_view(), name="interview-analytics"),
     path('analytics/student/<int:student_id>', StudentAnalyticsAPIView.as_view(), name='student-analytics'),
     path('interview-table-data', InterviewTableAPIView.as_view(), name='interview-analytics'),
+    
+    path("<int:interview_id>/upload-frames", UploadFramesAPIView.as_view()),
 ]
