@@ -157,21 +157,16 @@ DATABASES = {
 
 
 
+# Simple JWT settings
 SIMPLE_JWT = {
-    # Access token lifetime
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),   # default is 5 minutes
-
-    # Refresh token lifetime
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),      # default is 1 day
-
-    # Optional: if you want to rotate refresh tokens
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
-
-    # (optional, for security)
-    "UPDATE_LAST_LOGIN": True,
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": False,
+    "BLACKLIST_AFTER_ROTATION": False,
+    "ALGORITHM": "HS256",
+    # optionally set SIGNING_KEY if you want different from SECRET_KEY:
+    "SIGNING_KEY": SECRET_KEY,
 }
-
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
