@@ -180,37 +180,21 @@ class VisualFeedbackSerializer(serializers.ModelSerializer):
             "environment", "distractions", "interview_ts"
         ]
 
-    def get_professional_appearance(self, obj):
-        try:
-            if obj.report and obj.report.visual_feedback:
-                return obj.report.visual_feedback[0].get("appearance", "")
-        except Report.DoesNotExist:
-            return ""
+    def _get_feedback(self, obj, key):
+        """Helper to safely fetch visual feedback value by key"""
+        report = getattr(obj, "report", None)
+        if report and report.visual_feedback:
+            return report.visual_feedback.get(key, "")
         return ""
+
+    def get_professional_appearance(self, obj):
+        return self._get_feedback(obj, "lighting")  # or "appearance" if you want to keep old
 
     def get_body_language(self, obj):
-        try:
-            if obj.report and obj.report.visual_feedback:
-                return obj.report.visual_feedback[0].get("body_language", "")
-        except Report.DoesNotExist:
-            return ""
-        return ""
+        return self._get_feedback(obj, "camera_setup")
 
     def get_environment(self, obj):
-        try:
-            if obj.report and obj.report.visual_feedback:
-                return obj.report.visual_feedback[0].get("environment", "")
-        except Report.DoesNotExist:
-            return ""
-        return ""
+        return self._get_feedback(obj, "background")
 
     def get_distractions(self, obj):
-        try:
-            if obj.report and obj.report.visual_feedback:
-                return obj.report.visual_feedback[0].get("distractions", "")
-        except Report.DoesNotExist:
-            return ""
-        return ""
-
-
-
+        return self._get_feedback(obj, "recommendations")
