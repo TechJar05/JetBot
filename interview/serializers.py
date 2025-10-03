@@ -59,6 +59,9 @@ class ReportSerializer(serializers.ModelSerializer):
     student_course = serializers.CharField(source="interview.student.course_name", read_only=True)
     scheduled_time = serializers.DateTimeField(source="interview.scheduled_time", read_only=True)
 
+    # ✅ New field
+    avg_key_strength_rating = serializers.SerializerMethodField()
+
     class Meta:
         model = Report
         exclude = ("visual_frames",)   # 🚀 Hide frames from API response
@@ -72,6 +75,7 @@ class ReportSerializer(serializers.ModelSerializer):
             "student_center",
             "student_course",
             "scheduled_time",
+            "avg_key_strength_rating",
         ]
 
     def get_field_names(self, declared_fields, info):
@@ -80,8 +84,20 @@ class ReportSerializer(serializers.ModelSerializer):
             return expanded_fields + self.Meta.extra_fields
         return expanded_fields
 
-
-
+    def get_avg_key_strength_rating(self, obj):
+        """Compute average rating from key_strengths JSON field"""
+        try:
+            strengths = obj.key_strengths or []
+            ratings = [
+                s.get("rating")
+                for s in strengths
+                if isinstance(s.get("rating"), (int, float))
+            ]
+            if ratings:
+                return round(sum(ratings) / len(ratings), 2)
+        except Exception:
+            return None
+        return None
 
 
 from rest_framework import serializers

@@ -391,43 +391,6 @@ class ReportCreateView(generics.CreateAPIView):
         return Response(ReportSerializer(report).data, status=201)
 
 
-# class CompleteInterviewAndGenerateReportAPIView(APIView):
-#     """
-#     POST /api/interviews/<interview_id>/complete-and-generate-report/
-#     Marks interview completed (if not already) and creates the report (idempotent).
-#     Who can call: student (owner), admin, super_admin.
-#     """
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def post(self, request, interview_id, *args, **kwargs):
-#         interview = get_object_or_404(
-#             Interview.objects.select_related("student"), id=interview_id
-#         )
-
-#         if not _can_view_or_own(request.user, interview):
-#             return Response({"error": "Forbidden"}, status=403)
-
-#         if interview.status != "completed":
-#             interview.status = "completed"
-#             interview.save(update_fields=["status"])
-
-#         try:
-#             report = _create_report_for_interview(interview)
-#             created = True
-#         except ValueError as ve:
-#             return Response({"error": str(ve)}, status=400)
-#         except RuntimeError as re:
-#             return Response({"error": str(re)}, status=500)
-#         except Exception:
-#             # if already created in race condition, return it
-#             try:
-#                 report = interview.report
-#                 created = False
-#             except Report.DoesNotExist:
-#                 return Response({"error": "Unknown error creating report"}, status=500)
-
-#         return Response(ReportSerializer(report).data, status=201 if created else 200)
-
 class CompleteInterviewAndGenerateReportAPIView(APIView):
     """
     Complete interview and generate comprehensive report.
