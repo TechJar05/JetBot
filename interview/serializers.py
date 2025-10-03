@@ -51,7 +51,6 @@ from authentication.models import Report
 
 
 class ReportSerializer(serializers.ModelSerializer):
-    # student fields pulled via interview → student
     student_id = serializers.IntegerField(source="interview.student.id", read_only=True)
     student_name = serializers.CharField(source="interview.student.name", read_only=True)
     student_email = serializers.EmailField(source="interview.student.email", read_only=True)
@@ -62,11 +61,9 @@ class ReportSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Report
-        exclude = ("visual_frames",)
-        fields = "__all__"  # keep all original Report fields
+        exclude = ("visual_frames",)   # 🚀 Hide frames from API response
         read_only_fields = ("id", "created_at", "interview")
 
-        # add student fields explicitly
         extra_fields = [
             "student_id",
             "student_name",
@@ -74,15 +71,15 @@ class ReportSerializer(serializers.ModelSerializer):
             "student_batch",
             "student_center",
             "student_course",
-            "scheduled_time"
+            "scheduled_time",
         ]
 
     def get_field_names(self, declared_fields, info):
-        """Ensure extra fields are included with __all__"""
         expanded_fields = super().get_field_names(declared_fields, info)
         if hasattr(self.Meta, "extra_fields"):
             return expanded_fields + self.Meta.extra_fields
         return expanded_fields
+
 
 
 
