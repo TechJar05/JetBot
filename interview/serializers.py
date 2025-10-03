@@ -62,6 +62,7 @@ class ReportSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Report
+        exclude = ("visual_frames",)
         fields = "__all__"  # keep all original Report fields
         read_only_fields = ("id", "created_at", "interview")
 
