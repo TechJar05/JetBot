@@ -141,15 +141,19 @@ class ReportSerializer(serializers.ModelSerializer):
 
 class ReportListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for report listings"""
+
     report_id = serializers.IntegerField(source="id")
     student_name = serializers.CharField(source="interview.student.name")
     roll_no = serializers.CharField(source="interview.student.batch_no")
     batch_no = serializers.CharField(source="interview.student.batch_no")
     center = serializers.CharField(source="interview.student.center")
     course = serializers.CharField(source="interview.student.course_name")
-    evaluation_date = serializers.DateTimeField(source="interview.scheduled_time")
+
+    # Custom formatted fields
+    evaluation_date = serializers.SerializerMethodField()
+    interview_time = serializers.SerializerMethodField()
+
     difficulty_level = serializers.CharField(source="interview.difficulty_level")
-    interview_time = serializers.DateTimeField(source="interview.scheduled_time")
 
     class Meta:
         model = Report
@@ -165,6 +169,15 @@ class ReportListSerializer(serializers.ModelSerializer):
             "interview_time",
         ]
 
+    # --- Format: dd/mm/yyyy ---
+    def get_evaluation_date(self, obj):
+        date = obj.interview.scheduled_time
+        return date.strftime("%d/%m/%Y") if date else None
+
+    # --- Time of report creation ---
+    def get_interview_time(self, obj):
+        time = obj.created_at  # report creation time
+        return time.strftime("%H:%M:%S") if time else None
 
 # ============================================
 # VISUAL FEEDBACK SERIALIZER (FIXED)
