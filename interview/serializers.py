@@ -331,8 +331,10 @@ class VisualFeedbackSerializer(serializers.ModelSerializer):
 class InterviewRatingsSerializer(serializers.ModelSerializer):
     """Serializer for interview ratings table"""
     mail_id = serializers.EmailField(source="student.email")
-    interview_ts = serializers.DateTimeField(source="scheduled_time")
-    
+
+    # Replaced scheduled_time with report.created_at in IST readable format
+    interview_ts = serializers.SerializerMethodField()
+
     # Ratings from Report
     technical_rating = serializers.SerializerMethodField()
     communication_rating = serializers.SerializerMethodField()
@@ -352,6 +354,19 @@ class InterviewRatingsSerializer(serializers.ModelSerializer):
             "interview_ts",
         ]
 
+    # ✅ Format interview timestamp from Report.created_at
+    def get_interview_ts(self, obj):
+        try:
+            report = obj.report  # one-to-one relation (Interview -> Report)
+            if not report or not report.created_at:
+                return None
+            ist = pytz.timezone("Asia/Kolkata")
+            local_dt = timezone.localtime(report.created_at, ist)
+            return local_dt.strftime("%A, %d/%m/%Y %H:%M:%S")
+        except Report.DoesNotExist:
+            return None
+
+    # --- Safely get ratings from Report JSON field ---
     def _get_rating(self, obj, key, default=0):
         """Safely get rating from Report.ratings JSON field"""
         try:
@@ -375,7 +390,6 @@ class InterviewRatingsSerializer(serializers.ModelSerializer):
 
     def get_total_rating(self, obj):
         return self._get_rating(obj, "total")
-
 
 # ============================================
 # ANALYTICS SERIALIZERS
