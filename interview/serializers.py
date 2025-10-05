@@ -152,6 +152,7 @@ class ReportListSerializer(serializers.ModelSerializer):
     center = serializers.CharField(source="interview.student.center")
     course = serializers.CharField(source="interview.student.course_name")
 
+    # Custom formatted fields
     evaluation_date = serializers.SerializerMethodField()
     interview_time = serializers.SerializerMethodField()
     difficulty_level = serializers.CharField(source="interview.difficulty_level")
@@ -171,22 +172,22 @@ class ReportListSerializer(serializers.ModelSerializer):
         ]
 
     def get_evaluation_date(self, obj):
-        """Format as dd/mm/yyyy in IST"""
+        """Format evaluation date with day (IST)"""
         date = obj.interview.scheduled_time
         if not date:
             return None
         ist = pytz.timezone("Asia/Kolkata")
         local_date = timezone.localtime(date, ist)
-        return local_date.strftime("%d/%m/%Y")
+        return local_date.strftime("%A, %d/%m/%Y") 
 
     def get_interview_time(self, obj):
-        """Show report creation time with day and time in IST"""
+        """Format report creation time with day and time (IST)"""
         time = obj.created_at
         if not time:
             return None
         ist = pytz.timezone("Asia/Kolkata")
         local_time = timezone.localtime(time, ist)
-        return local_time.strftime("%A, %d/%m/%Y %H:%M:%S")
+        return local_time.strftime("%A, %d/%m/%Y %H:%M:%S")  
 # ============================================
 # VISUAL FEEDBACK SERIALIZER (FIXED)
 # ============================================
