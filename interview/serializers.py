@@ -59,7 +59,7 @@ class InterviewTableSerializer(serializers.ModelSerializer):
     course = serializers.CharField(source="student.course_name")
 
     evaluation_date = serializers.SerializerMethodField()
-    interview_time = serializers.SerializerMethodField()  # NEW FIELD
+    interview_ts = serializers.SerializerMethodField()  # NEW FIELD
     jd_id = serializers.IntegerField(source="id")
 
     class Meta:
@@ -71,11 +71,10 @@ class InterviewTableSerializer(serializers.ModelSerializer):
             "center",
             "course",
             "evaluation_date",
-            "interview_time",   # Added here
+            "interview_ts",   # Added here
             "difficulty_level",
             "jd_id",
             "status",
-            "scheduled_time",
         ]
 
     # --- Convert evaluation_date (Interview.created_at) to IST readable format ---
