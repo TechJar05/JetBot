@@ -87,7 +87,7 @@ class InterviewTableSerializer(serializers.ModelSerializer):
         return local_dt.strftime("%A, %d/%m/%Y %H:%M:%S")
 
     # --- Add interview_time from related Report (Report.created_at) ---
-    def get_interview_time(self, obj):
+    def get_interview_ts(self, obj):
         try:
             report = obj.report  # one-to-one relation (Interview -> Report)
             if not report or not report.created_at:
