@@ -174,11 +174,10 @@ class ReportListSerializer(serializers.ModelSerializer):
         date = obj.interview.scheduled_time
         return date.strftime("%d/%m/%Y") if date else None
 
-    # --- Time of report creation ---
+    # --- Format: Day, dd/mm/yyyy HH:MM:SS ---
     def get_interview_time(self, obj):
         time = obj.created_at  # report creation time
-        return time.strftime("%H:%M:%S") if time else None
-
+        return time.strftime("%A, %d/%m/%Y %H:%M:%S") if time else None
 # ============================================
 # VISUAL FEEDBACK SERIALIZER (FIXED)
 # ============================================
