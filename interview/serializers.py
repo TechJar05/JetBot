@@ -1,6 +1,9 @@
 # serializers.py
 from rest_framework import serializers
 from authentication.models import Interview, User, Report
+from django.utils import timezone
+import pytz
+
 
 
 # ============================================
@@ -149,10 +152,8 @@ class ReportListSerializer(serializers.ModelSerializer):
     center = serializers.CharField(source="interview.student.center")
     course = serializers.CharField(source="interview.student.course_name")
 
-    # Custom formatted fields
     evaluation_date = serializers.SerializerMethodField()
     interview_time = serializers.SerializerMethodField()
-
     difficulty_level = serializers.CharField(source="interview.difficulty_level")
 
     class Meta:
@@ -169,15 +170,23 @@ class ReportListSerializer(serializers.ModelSerializer):
             "interview_time",
         ]
 
-    # --- Format: dd/mm/yyyy ---
     def get_evaluation_date(self, obj):
+        """Format as dd/mm/yyyy in IST"""
         date = obj.interview.scheduled_time
-        return date.strftime("%d/%m/%Y") if date else None
+        if not date:
+            return None
+        ist = pytz.timezone("Asia/Kolkata")
+        local_date = timezone.localtime(date, ist)
+        return local_date.strftime("%d/%m/%Y")
 
-    # --- Format: Day, dd/mm/yyyy HH:MM:SS ---
     def get_interview_time(self, obj):
-        time = obj.created_at  # report creation time
-        return time.strftime("%A, %d/%m/%Y %H:%M:%S") if time else None
+        """Show report creation time with day and time in IST"""
+        time = obj.created_at
+        if not time:
+            return None
+        ist = pytz.timezone("Asia/Kolkata")
+        local_time = timezone.localtime(time, ist)
+        return local_time.strftime("%A, %d/%m/%Y %H:%M:%S")
 # ============================================
 # VISUAL FEEDBACK SERIALIZER (FIXED)
 # ============================================
