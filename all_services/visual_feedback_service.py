@@ -15,12 +15,16 @@ def _to_image_base64(base64_str: str) -> str:
     Ensure base64 string is in proper format for OpenAI Vision API.
     Returns data URI format.
     """
+    # Already has data URI prefix
     if base64_str.startswith("data:image"):
         return base64_str
     
-    # Remove data URI prefix if present
+    # Extract just the base64 data
     if "base64," in base64_str:
-        base64_str = base64_str.split("base64,")[1]
+        base64_str = base64_str.split("base64,", 1)[1]
+    
+    # Clean the base64 string - remove any whitespace
+    base64_str = base64_str.strip().replace('\n', '').replace('\r', '').replace(' ', '')
     
     # Return with proper data URI format
     return f"data:image/jpeg;base64,{base64_str}"

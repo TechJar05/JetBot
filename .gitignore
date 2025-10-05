@@ -94,3 +94,4 @@ uvicorn*
 *.log
 .dockerignore
 docker-compose.override.yml
+test1.py

@@ -2,9 +2,20 @@ frame = "image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAA
 # Test the updated code with print statements:
 # In your Django shell or view:
 
+import os
+import django
+
+# --- Initialize Django ---
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "JetBot.settings")  # ← change if your settings path differs
+django.setup()
+
+# --- Now safe to import Django-based services ---
 from all_services.visual_feedback_service import analyze_frames_aggregated
 
-# Test with your actual frames
+# --- Example test frames (replace these with actual base64 or image data) ---
+
 frames = [frame, frame]
+
+# --- Run the test ---
 result = analyze_frames_aggregated(frames)
 print(result)
