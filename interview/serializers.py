@@ -172,22 +172,22 @@ class ReportListSerializer(serializers.ModelSerializer):
         ]
 
     def get_evaluation_date(self, obj):
-        """Format evaluation date with day (IST)"""
+        """Day + Date + Time (IST) of the interview schedule"""
         date = obj.interview.scheduled_time
         if not date:
             return None
         ist = pytz.timezone("Asia/Kolkata")
         local_date = timezone.localtime(date, ist)
-        return local_date.strftime("%A, %d/%m/%Y") 
+        return local_date.strftime("%A, %d/%m/%Y %H:%M:%S")
 
     def get_interview_time(self, obj):
-        """Format report creation time with day and time (IST)"""
+        """Day + Date + Time (IST) when report was created"""
         time = obj.created_at
         if not time:
             return None
         ist = pytz.timezone("Asia/Kolkata")
         local_time = timezone.localtime(time, ist)
-        return local_time.strftime("%A, %d/%m/%Y %H:%M:%S")  
+        return local_time.strftime("%A, %d/%m/%Y %H:%M:%S") 
 # ============================================
 # VISUAL FEEDBACK SERIALIZER (FIXED)
 # ============================================
