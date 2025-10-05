@@ -73,7 +73,7 @@ def generate_chat_completion(
 #     return [line.strip(" -0123456789.") for line in raw_output.splitlines() if line.strip()]
 
 
-def generate_interview_questions(jd_text: str, difficulty: str = "beginner") -> List[str]:
+def generate_interview_questions(jd_text: str, difficulty: str) -> List[str]:
     """
     Generate 5 structured interview questions from a JD and difficulty level:
     - 1 introductory question

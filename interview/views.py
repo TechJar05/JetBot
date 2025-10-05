@@ -272,7 +272,7 @@ class ScheduleInterviewAPIView(APIView):
         if not jd_text:
             return Response({"error": "jd_text is required. Parse JD first."}, status=status.HTTP_400_BAD_REQUEST)
 
-        difficulty_level = request.data.get("difficulty_level", "beginner")
+        difficulty_level = request.data.get("difficulty_level")
         valid_diff = [c[0] for c in Interview.DIFFICULTY_CHOICES]
         if difficulty_level not in valid_diff:
             return Response(
