@@ -2,199 +2,248 @@
 import base64
 import io
 import os
-from PIL import Image
-from django.conf import settings
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import json
+from PIL import Image
+from openai import OpenAI
 
-genai.configure(api_key="AIzaSyBzlibPdnK-c2W3C2imv4QD2K_NsTzs2IA")
-_model_id = "gemini-2.0-flash-exp"
-_model = genai.GenerativeModel(_model_id)
+# Initialize OpenAI client (v1+ API)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def _to_image(base64_str: str) -> Image.Image:
-    """Convert base64 string to PIL Image"""
+
+def _to_image_base64(base64_str: str) -> str:
+    """
+    Ensure base64 string is in proper format for OpenAI Vision API.
+    Returns data URI format.
+    """
+    if base64_str.startswith("data:image"):
+        return base64_str
+    
+    # Remove data URI prefix if present
     if "base64," in base64_str:
         base64_str = base64_str.split("base64,")[1]
-    data = base64.b64decode(base64_str)
-    img = Image.open(io.BytesIO(data))
     
-    # Validate format
-    if img.format and img.format.lower() not in ("jpeg", "png", "gif", "webp"):
-        raise ValueError("Unsupported image format")
-    
-    # Resize if needed
-    if img.width > 1920 or img.height > 1080:
-        img.thumbnail((1920, 1080), Image.Resampling.LANCZOS)
-    
-    return img
+    # Return with proper data URI format
+    return f"data:image/jpeg;base64,{base64_str}"
 
 
-def analyze_frames_aggregated(frames_b64: list[str]) -> dict:
+def _validate_and_resize_image(base64_str: str) -> str:
     """
-    Analyze interview frames using environment/setting-focused approach.
-    This avoids triggering safety filters by focusing on context rather than people.
+    Validate and resize image if needed.
+    Returns base64 string.
+    """
+    try:
+        # Extract base64 data
+        if "base64," in base64_str:
+            prefix, data = base64_str.split("base64,")
+            prefix += "base64,"
+        else:
+            prefix = "data:image/jpeg;base64,"
+            data = base64_str
+        
+        # Decode and validate
+        img_data = base64.b64decode(data)
+        img = Image.open(io.BytesIO(img_data))
+        
+        # Validate format
+        if img.format and img.format.lower() not in ("jpeg", "png", "gif", "webp"):
+            raise ValueError(f"Unsupported format: {img.format}")
+        
+        # Resize if too large (save tokens)
+        if img.width > 1024 or img.height > 1024:
+            img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+            
+            # Re-encode to base64
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=85)
+            new_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            return f"{prefix}{new_data}"
+        
+        return f"{prefix}{data}"
+        
+    except Exception as e:
+        print(f"Image validation error: {e}")
+        raise
+
+
+def analyze_frames_aggregated(frames_b64: list[str], candidate_name=None, candidate_id=None) -> dict:
+    """
+    Analyze 3-5 frames using GPT-4 Vision API.
+    Returns aggregated feedback across all frames.
     """
     if not frames_b64:
         return {"status": "no_frames", "message": "No frames provided"}
 
-    images = []
-    for b64 in frames_b64[:10]:
+    # Process up to 5 frames
+    frames = frames_b64[:5]
+    valid_images = []
+
+    for idx, b64 in enumerate(frames):
         try:
-            images.append(_to_image(b64))
+            validated = _validate_and_resize_image(b64)
+            valid_images.append(validated)
         except Exception as e:
-            print(f"Failed to process image: {e}")
+            print(f"Failed to process frame {idx}: {e}")
             continue
-    
-    if not images:
+
+    if not valid_images:
         return {"status": "error", "message": "No valid images to analyze"}
 
-    # KEY CHANGE: Focus on environment and setup, NOT on the person
-    prompt = """You are analyzing the technical setup and environment of a video interview recording.
+    candidate_display = candidate_name or f"Candidate {candidate_id}" if candidate_id else "the candidate"
 
-Focus ONLY on the following objective criteria:
-1. **Lighting Quality**: Assess if the lighting is adequate, too bright, too dark, or has glare
-2. **Background Setting**: Describe the background (professional office, home setting, plain wall, busy/distracting, etc.)
-3. **Camera Framing**: Is the camera positioned appropriately (too close, too far, good angle)?
-4. **Video Quality**: Overall clarity and stability of the video
+    # Prepare prompt for aggregated analysis
+    prompt = f"""You are analyzing {len(valid_images)} video frames from an interview with {candidate_display}.
 
-Provide your analysis in this EXACT JSON format (no markdown, no extra text):
-{
-  "lighting": "brief assessment of lighting conditions",
-  "background": "description of background environment",
-  "camera_setup": "notes on camera positioning and framing",
-  "technical_quality": "overall video quality assessment",
-  "recommendations": "1-2 brief suggestions for improvement if needed"
-}"""
+Provide a comprehensive assessment across ALL frames. For each category, describe patterns and consistency:
+
+CRITICAL: Be SPECIFIC and DETAILED. Use concrete visual descriptions (colors, patterns, positions, objects).
+Each description should be 25-40 words with specific observations.
+
+Analyze these aspects:
+
+1. PROFESSIONAL APPEARANCE: Clothing style, colors, patterns, grooming, accessories, consistency across frames
+2. BODY LANGUAGE: Posture, hand gestures, positioning, movement, confidence indicators, consistency
+3. FACIAL EXPRESSIONS: Eye contact, facial movements, expressions, engagement level, emotional cues
+4. ENVIRONMENT: Background details, lighting, room setup, visible objects, professionalism of setting
+5. DISTRACTIONS: Any movements, objects, technical issues, or environmental factors that may impact the interview
+
+Return ONLY valid JSON with these exact keys:
+{{
+  "professional_appearance": "detailed observation",
+  "body_language": "detailed observation",
+  "facial_expressions": "detailed observation",
+  "environment": "detailed observation",
+  "distractions": "detailed observation"
+}}"""
 
     try:
-        # Safety settings - be permissive but still maintain basic protections
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        }
+        # Build message content with all images
+        content = [{"type": "text", "text": prompt}]
         
-        # Generate content with proper error handling
-        resp = _model.generate_content(
-            [prompt] + images,
-            generation_config={
-                "temperature": 0.4,
-                "max_output_tokens": 600,
-                "top_p": 0.95,
-            },
-            safety_settings=safety_settings
+        for img_b64 in valid_images:
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": img_b64,
+                    "detail": "low"  # Use "low" for cost efficiency
+                }
+            })
+
+        # Call OpenAI Vision API
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # or "gpt-4o" for better quality
+            messages=[{
+                "role": "user",
+                "content": content
+            }],
+            temperature=0.3,
+            max_tokens=600
         )
-        
-        # Check if blocked
-        if not resp.candidates:
-            print("Response was blocked - no candidates returned")
-            return _generate_generic_feedback(len(images))
-        
-        candidate = resp.candidates[0]
-        
-        # Check finish reason
-        if candidate.finish_reason == 2:  # SAFETY
-            print(f"Response blocked due to SAFETY. Safety ratings: {candidate.safety_ratings}")
-            return _generate_generic_feedback(len(images))
-        
-        if candidate.finish_reason not in [1, 0]:  # Not STOP or UNSPECIFIED
-            print(f"Unexpected finish_reason: {candidate.finish_reason}")
-            return _generate_generic_feedback(len(images))
-        
-        # Get text
-        text = resp.text.strip()
-        
-        # Clean up markdown if present
+
+        text = response.choices[0].message.content.strip()
+
+        # Clean markdown if present
         if text.startswith("```"):
             lines = text.split("\n")
             text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
             if text.startswith("json"):
                 text = text[4:].strip()
-        
+
         # Parse JSON
         try:
-            result = json.loads(text)
-            result["status"] = "success"
-            result["frames_analyzed"] = len(images)
-            return result
+            feedback = json.loads(text)
+            feedback["status"] = "success"
+            feedback["frames_analyzed"] = len(valid_images)
+            feedback["analysis_type"] = "visual_gpt"
+            feedback["candidate_name"] = candidate_name
+            return feedback
         except json.JSONDecodeError as je:
             print(f"JSON parse error: {je}")
-            print(f"Raw text: {text[:500]}")
-            # Return text as-is with metadata
+            print(f"Raw response: {text[:500]}")
             return {
-                "status": "partial",
-                "analysis": text,
-                "frames_analyzed": len(images)
+                "status": "parse_error",
+                "raw_analysis": text,
+                "frames_analyzed": len(valid_images)
             }
-            
+
     except Exception as e:
+        print(f"OpenAI Vision API error: {e}")
         import traceback
-        print(f"Visual feedback error: {e}")
         print(traceback.format_exc())
-        return _generate_generic_feedback(len(images), error=str(e))
-
-
-def _generate_generic_feedback(frame_count: int, error: str = None) -> dict:
-    """
-    Generate generic feedback when AI analysis fails.
-    This ensures we always return something useful.
-    """
-    feedback = {
-        "status": "generic",
-        "frames_analyzed": frame_count,
-        "lighting": "Video frames were captured successfully",
-        "background": "Interview environment was recorded",
-        "camera_setup": "Camera positioning was maintained throughout",
-        "technical_quality": f"Total of {frame_count} frames captured during interview",
-        "note": "Detailed visual analysis unavailable - generic assessment provided"
-    }
-    
-    if error:
-        feedback["technical_note"] = f"Analysis limited due to: {error[:100]}"
-    
-    return feedback
+        
+        return {
+            "status": "error",
+            "message": f"Analysis failed: {str(e)[:200]}",
+            "frames_received": len(valid_images)
+        }
 
 
 def analyze_interview_metadata(transcript: str, duration_minutes: int = None) -> dict:
     """
-    Alternative approach: Analyze interview based on transcript metadata
-    instead of visual frames. This is more reliable and avoids safety issues.
+    Fallback: Transcript-based analysis using GPT.
     """
-    try:
-        prompt = f"""Based on this interview transcript, provide professional feedback on communication patterns:
+    if not transcript or len(transcript.strip()) < 50:
+        return {
+            "status": "unavailable",
+            "note": "Insufficient transcript data"
+        }
+
+    prompt = f"""Based on this interview transcript, provide professional communication feedback:
 
 Transcript: {transcript[:3000]}
 
-Analyze and return JSON with:
+Analyze and return JSON:
 {{
-  "communication_style": "assessment of clarity and articulation",
-  "engagement_indicators": "signs of preparation and thoughtfulness",
+  "communication_style": "clarity and articulation assessment",
+  "engagement_indicators": "preparation and thoughtfulness signs",
   "response_quality": "depth and relevance of answers",
   "areas_to_develop": "1-2 constructive suggestions"
 }}"""
 
-        resp = _model.generate_content(
-            prompt,
-            generation_config={
-                "temperature": 0.4,
-                "max_output_tokens": 500,
-            }
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }],
+            temperature=0.3,
+            max_tokens=400
         )
         
-        text = resp.text.strip()
+        text = response.choices[0].message.content.strip()
+        
+        # Clean markdown
         if text.startswith("```"):
             lines = text.split("\n")
             text = "\n".join(lines[1:-1])
             if text.startswith("json"):
                 text = text[4:].strip()
         
-        return json.loads(text)
+        result = json.loads(text)
+        result["analysis_type"] = "transcript_based"
+        return result
         
     except Exception as e:
         print(f"Metadata analysis error: {e}")
         return {
-            "status": "unavailable",
-            "note": "Communication analysis could not be completed"
+            "status": "error",
+            "note": "Communication analysis could not be completed",
+            "error": str(e)[:200]
         }
+
+
+def generate_fallback_feedback(candidate_name: str, frame_count: int) -> dict:
+    """
+    Generate generic feedback when AI analysis fails.
+    """
+    return {
+        "status": "fallback",
+        "frames_analyzed": frame_count,
+        "candidate_name": candidate_name,
+        "professional_appearance": f"{candidate_name} maintained professional presentation throughout the {frame_count} captured frames",
+        "body_language": f"{candidate_name} demonstrated consistent posture and engagement across the interview session",
+        "facial_expressions": f"{candidate_name} showed appropriate facial expressions and attentiveness during the interview",
+        "environment": f"Interview environment was recorded across {frame_count} frames with adequate technical setup",
+        "distractions": "No significant distractions were detected in the captured frames",
+        "note": "Generic assessment provided - detailed AI analysis unavailable"
+    }

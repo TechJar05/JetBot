@@ -86,6 +86,7 @@ class Interview(models.Model):
     duration_minutes = models.PositiveIntegerField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     full_transcript = models.TextField(null=True, blank=True)
+    visual_frames = models.JSONField(null=True, blank=True) 
     questions = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
  
@@ -99,11 +100,9 @@ class Interview(models.Model):
 class Report(models.Model):
     id = models.AutoField(primary_key=True)
     interview = models.OneToOneField(Interview, on_delete=models.CASCADE, related_name="report")
- 
     key_strengths = models.JSONField(null=True, blank=True)  # [{"area": "DSA", "example": "...", "rating": 4}]
     areas_for_improvement = models.JSONField(null=True, blank=True)  # [{"area": "Comm", "suggestions": "..."}]
     visual_feedback = models.JSONField(null=True, blank=True)  # [{"appearance": "Formal", "eye_contact": "Good"}]
-    visual_frames = models.JSONField(null=True, blank=True) 
     ratings = models.JSONField(null=True, blank=True)  # {"technical":4,"communication":3,"problem_solving":4,"time_mgmt":3,"total":14}
  
     created_at = models.DateTimeField(auto_now_add=True)
