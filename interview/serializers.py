@@ -57,15 +57,47 @@ class InterviewTableSerializer(serializers.ModelSerializer):
     batch_no = serializers.CharField(source="student.batch_no")
     center = serializers.CharField(source="student.center")
     course = serializers.CharField(source="student.course_name")
-    evaluation_date = serializers.DateTimeField(source="created_at")
+
+    evaluation_date = serializers.SerializerMethodField()
+    interview_time = serializers.SerializerMethodField()  # NEW FIELD
     jd_id = serializers.IntegerField(source="id")
 
     class Meta:
         model = Interview
         fields = [
-            "student_name", "roll_no", "batch_no", "center", "course",
-            "evaluation_date", "difficulty_level", "jd_id", "status", "scheduled_time"
+            "student_name",
+            "roll_no",
+            "batch_no",
+            "center",
+            "course",
+            "evaluation_date",
+            "interview_time",   # Added here
+            "difficulty_level",
+            "jd_id",
+            "status",
+            "scheduled_time",
         ]
+
+    # --- Convert evaluation_date (Interview.created_at) to IST readable format ---
+    def get_evaluation_date(self, obj):
+        dt = obj.created_at
+        if not dt:
+            return None
+        ist = pytz.timezone("Asia/Kolkata")
+        local_dt = timezone.localtime(dt, ist)
+        return local_dt.strftime("%A, %d/%m/%Y %H:%M:%S")
+
+    # --- Add interview_time from related Report (Report.created_at) ---
+    def get_interview_time(self, obj):
+        try:
+            report = obj.report  # one-to-one relation (Interview -> Report)
+            if not report or not report.created_at:
+                return None
+            ist = pytz.timezone("Asia/Kolkata")
+            local_dt = timezone.localtime(report.created_at, ist)
+            return local_dt.strftime("%A, %d/%m/%Y %H:%M:%S")
+        except Exception:
+            return None
 
 
 # ============================================
