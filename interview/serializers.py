@@ -113,9 +113,12 @@ class ReportSerializer(serializers.ModelSerializer):
     student_center = serializers.CharField(source="interview.student.center", read_only=True)
     student_course = serializers.CharField(source="interview.student.course_name", read_only=True)
 
+    # New field for difficulty level
+    difficulty_level = serializers.CharField(source="interview.difficulty_level", read_only=True)
+
     # Replace scheduled_time with formatted field
     scheduled_time = serializers.SerializerMethodField()
-    interview_time = serializers.SerializerMethodField()  # NEW FIELD
+    interview_time = serializers.SerializerMethodField()  # From report.created_at
 
     # Computed fields
     avg_key_strength_rating = serializers.SerializerMethodField()
@@ -139,6 +142,7 @@ class ReportSerializer(serializers.ModelSerializer):
             "student_batch",
             "student_center",
             "student_course",
+            "difficulty_level",   # ✅ Added here
             # Time fields
             "scheduled_time",
             "interview_time",
@@ -245,11 +249,11 @@ class ReportListSerializer(serializers.ModelSerializer):
 class VisualFeedbackSerializer(serializers.ModelSerializer):
     """
     Serializer for visual feedback data.
-    Now properly handles visual_feedback from Report model.
+    Handles visual_feedback from Report model and formats interview timestamp.
     """
     roll_no = serializers.CharField(source="student.id")
-    interview_ts = serializers.DateTimeField(source="scheduled_time")
-    
+    interview_ts = serializers.SerializerMethodField()  # From report.created_at
+
     # Visual feedback fields
     professional_appearance = serializers.SerializerMethodField()
     body_language = serializers.SerializerMethodField()
@@ -275,10 +279,23 @@ class VisualFeedbackSerializer(serializers.ModelSerializer):
             "frames_analyzed",
         ]
 
+    # --- Get interview timestamp from Report.created_at in IST format ---
+    def get_interview_ts(self, obj):
+        try:
+            report = obj.report
+            if not report or not report.created_at:
+                return None
+            ist = pytz.timezone("Asia/Kolkata")
+            local_dt = timezone.localtime(report.created_at, ist)
+            return local_dt.strftime("%A, %d/%m/%Y %H:%M:%S")
+        except Report.DoesNotExist:
+            return None
+
+    # --- Visual feedback helpers ---
     def _get_visual_feedback(self, obj):
         """Get visual_feedback dict from Report"""
         try:
-            report = obj.report  # Access related Report
+            report = obj.report
             return report.visual_feedback if report else {}
         except Report.DoesNotExist:
             return {}
@@ -288,12 +305,11 @@ class VisualFeedbackSerializer(serializers.ModelSerializer):
         feedback = self._get_visual_feedback(obj)
         if not feedback:
             return default
-        
-        # Handle different status cases
+
         status = feedback.get("status")
         if status in ["error", "no_frames", "critical_error"]:
             return feedback.get("message", default)
-        
+
         return feedback.get(key, default)
 
     def get_professional_appearance(self, obj):
