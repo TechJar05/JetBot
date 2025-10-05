@@ -74,18 +74,22 @@ class InterviewTableSerializer(serializers.ModelSerializer):
 
 class ReportSerializer(serializers.ModelSerializer):
     """Main report serializer with all details"""
+
     student_id = serializers.IntegerField(source="interview.student.id", read_only=True)
     student_name = serializers.CharField(source="interview.student.name", read_only=True)
     student_email = serializers.EmailField(source="interview.student.email", read_only=True)
     student_batch = serializers.CharField(source="interview.student.batch_no", read_only=True)
     student_center = serializers.CharField(source="interview.student.center", read_only=True)
     student_course = serializers.CharField(source="interview.student.course_name", read_only=True)
-    scheduled_time = serializers.DateTimeField(source="interview.scheduled_time", read_only=True)
-    
+
+    # Replace scheduled_time with formatted field
+    scheduled_time = serializers.SerializerMethodField()
+    interview_time = serializers.SerializerMethodField()  # NEW FIELD
+
     # Computed fields
     avg_key_strength_rating = serializers.SerializerMethodField()
-    visual_frames_count = serializers.SerializerMethodField()  # NEW
-    has_visual_feedback = serializers.SerializerMethodField()  # NEW
+    visual_frames_count = serializers.SerializerMethodField()
+    has_visual_feedback = serializers.SerializerMethodField()
 
     class Meta:
         model = Report
@@ -104,13 +108,33 @@ class ReportSerializer(serializers.ModelSerializer):
             "student_batch",
             "student_center",
             "student_course",
+            # Time fields
             "scheduled_time",
+            "interview_time",
             # Computed fields
             "avg_key_strength_rating",
             "visual_frames_count",
             "has_visual_feedback",
         ]
         read_only_fields = ("id", "created_at", "interview")
+
+    # --- Format scheduled_time (Day + Date + Time in IST) ---
+    def get_scheduled_time(self, obj):
+        dt = obj.interview.scheduled_time
+        if not dt:
+            return None
+        ist = pytz.timezone("Asia/Kolkata")
+        local_dt = timezone.localtime(dt, ist)
+        return local_dt.strftime("%A, %d/%m/%Y %H:%M:%S")
+
+    # --- Add interview_time from report creation (Day + Date + Time in IST) ---
+    def get_interview_time(self, obj):
+        created = obj.created_at
+        if not created:
+            return None
+        ist = pytz.timezone("Asia/Kolkata")
+        local_time = timezone.localtime(created, ist)
+        return local_time.strftime("%A, %d/%m/%Y %H:%M:%S")
 
     def get_avg_key_strength_rating(self, obj):
         """Compute average rating from key_strengths JSON field"""
@@ -128,18 +152,13 @@ class ReportSerializer(serializers.ModelSerializer):
         return None
 
     def get_visual_frames_count(self, obj):
-        """Get frame count from Interview model"""
-        try:
-            return len(obj.interview.visual_frames or [])
-        except Exception:
-            return 0
+        """Count total visual frames if present"""
+        frames = obj.interview.visual_frames or []
+        return len(frames)
 
     def get_has_visual_feedback(self, obj):
-        """Check if visual feedback was generated"""
-        if not obj.visual_feedback:
-            return False
-        status = obj.visual_feedback.get("status")
-        return status in ["success", "fallback", "hybrid"]
+        """Check if visual feedback exists"""
+        return bool(obj.visual_feedback)
 
 
 class ReportListSerializer(serializers.ModelSerializer):
