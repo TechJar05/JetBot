@@ -203,7 +203,7 @@ class ReportListSerializer(serializers.ModelSerializer):
 
     report_id = serializers.IntegerField(source="id")
     student_name = serializers.CharField(source="interview.student.name")
-    roll_no = serializers.CharField(source="interview.student.batch_no")
+    roll_no = serializers.IntegerField(source="interview.student.id", read_only=True)
     batch_no = serializers.CharField(source="interview.student.batch_no")
     center = serializers.CharField(source="interview.student.center")
     course = serializers.CharField(source="interview.student.course_name")
