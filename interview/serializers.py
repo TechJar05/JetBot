@@ -113,15 +113,13 @@ class ReportSerializer(serializers.ModelSerializer):
     student_center = serializers.CharField(source="interview.student.center", read_only=True)
     student_course = serializers.CharField(source="interview.student.course_name", read_only=True)
 
-    # New field for difficulty level
     difficulty_level = serializers.CharField(source="interview.difficulty_level", read_only=True)
 
-    # Replace scheduled_time with formatted field
     scheduled_time = serializers.SerializerMethodField()
-    interview_time = serializers.SerializerMethodField()  # From report.created_at
+    interview_time = serializers.SerializerMethodField()
 
     # Computed fields
-    avg_key_strength_rating = serializers.SerializerMethodField()
+    avg_rating = serializers.SerializerMethodField()  # ✅ renamed to reflect actual data
     visual_frames_count = serializers.SerializerMethodField()
     has_visual_feedback = serializers.SerializerMethodField()
 
@@ -142,12 +140,12 @@ class ReportSerializer(serializers.ModelSerializer):
             "student_batch",
             "student_center",
             "student_course",
-            "difficulty_level",   # ✅ Added here
+            "difficulty_level",
             # Time fields
             "scheduled_time",
             "interview_time",
             # Computed fields
-            "avg_key_strength_rating",
+            "avg_rating",
             "visual_frames_count",
             "has_visual_feedback",
         ]
@@ -171,19 +169,19 @@ class ReportSerializer(serializers.ModelSerializer):
         local_time = timezone.localtime(created, ist)
         return local_time.strftime("%A, %d/%m/%Y %H:%M:%S")
 
-    def get_avg_key_strength_rating(self, obj):
-        """Compute average rating from key_strengths JSON field"""
+    # ✅ NEW — Calculate average rating from ratings JSON (dict type)
+    def get_avg_rating(self, obj):
+        """Compute average rating from 'ratings' JSON field (dict with numeric values)."""
         try:
-            strengths = obj.key_strengths or []
-            ratings = [
-                s.get("rating")
-                for s in strengths
-                if isinstance(s.get("rating"), (int, float))
-            ]
-            if ratings:
-                return round(sum(ratings) / len(ratings), 2)
+            ratings = obj.ratings or {}
+            if isinstance(ratings, dict) and ratings:
+                numeric_values = [
+                    v for v in ratings.values() if isinstance(v, (int, float))
+                ]
+                if numeric_values:
+                    return round(sum(numeric_values) / len(numeric_values), 2)
         except Exception:
-            return None
+            pass
         return None
 
     def get_visual_frames_count(self, obj):
