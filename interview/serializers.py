@@ -171,17 +171,21 @@ class ReportSerializer(serializers.ModelSerializer):
 
     # ✅ NEW — Calculate average rating from ratings JSON (dict type)
     def get_avg_rating(self, obj):
-        """Compute average rating from 'ratings' JSON field (dict with numeric values)."""
+        """Compute average rating from ratings JSON field"""
         try:
-            ratings = obj.ratings or {}
-            if isinstance(ratings, dict) and ratings:
-                numeric_values = [
-                    v for v in ratings.values() if isinstance(v, (int, float))
-                ]
-                if numeric_values:
-                    return round(sum(numeric_values) / len(numeric_values), 2)
+            ratings_data = obj.ratings or {}
+            
+            # Extract all ratings except 'total'
+            ratings = [
+                value
+                for key, value in ratings_data.items()
+                if key != "total" and isinstance(value, (int, float))
+            ]
+            
+            if ratings:
+                return round(sum(ratings) / len(ratings), 2)
         except Exception:
-            pass
+            return None
         return None
 
     def get_visual_frames_count(self, obj):
