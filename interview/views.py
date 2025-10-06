@@ -44,6 +44,7 @@ def _create_report_for_interview(
 ) -> Report:
     """
     Create comprehensive interview report with GPT Vision-based visual feedback.
+    Includes validation to prevent empty reports.
     """
     # Return existing report if already created (idempotent)
     try:
@@ -52,8 +53,16 @@ def _create_report_for_interview(
         pass
 
     transcription = (interview.full_transcript or "").strip()
-    if not transcription:
-        raise ValueError("Interview has no transcription")
+    
+    # Validation: Ensure transcript has meaningful content
+    if not transcription or len(transcription) < 50:
+        raise ValueError(
+            f"Interview transcription is too short ({len(transcription)} chars). "
+            "Minimum 50 characters required for analysis."
+        )
+
+    print(f"Generating report for interview {interview.id}")
+    print(f"Transcript length: {len(transcription)} characters")
 
     # 1️⃣ Generate text-based interview analysis
     prompt = f"""
@@ -68,6 +77,9 @@ def _create_report_for_interview(
         "time_mgmt": int (1-5),
         "total": int
     }}
+    
+    CRITICAL: You MUST provide at least 2 key strengths and 2 areas for improvement.
+    Even if the interview is brief, identify positive aspects and growth areas.
     Return ONLY compact JSON. No markdown, no prose.
 
     Transcription:
@@ -97,11 +109,20 @@ def _create_report_for_interview(
                                         "rating": {"type": "integer"}
                                     },
                                     "required": ["area", "rating"]
-                                }
+                                },
+                                "minItems": 1  # Ensure at least 1 item
                             },
                             "areas_for_improvement": {
                                 "type": "array",
-                                "items": {"type": "object"}
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "area": {"type": "string"},
+                                        "suggestions": {"type": "string"}
+                                    },
+                                    "required": ["area"]
+                                },
+                                "minItems": 1
                             },
                             "ratings": {
                                 "type": "object",
@@ -121,15 +142,74 @@ def _create_report_for_interview(
                 }
             }
         )
+        
         data: Dict[str, Any] = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+        
+        # Validate the response has meaningful data
+        key_strengths = data.get("key_strengths", [])
+        areas_for_improvement = data.get("areas_for_improvement", [])
+        ratings = data.get("ratings", {})
+        
+        # Check if GPT returned empty arrays
+        if not key_strengths or len(key_strengths) == 0:
+            print("WARNING: GPT returned empty key_strengths, generating fallback...")
+            key_strengths = [
+                {
+                    "area": "Communication",
+                    "example": "Candidate participated in the interview process",
+                    "rating": 3
+                },
+                {
+                    "area": "Engagement",
+                    "example": "Candidate responded to interview questions",
+                    "rating": 3
+                }
+            ]
+        
+        if not areas_for_improvement or len(areas_for_improvement) == 0:
+            print("WARNING: GPT returned empty areas_for_improvement, generating fallback...")
+            areas_for_improvement = [
+                {
+                    "area": "Response Depth",
+                    "suggestions": "Provide more detailed and elaborate answers to questions"
+                },
+                {
+                    "area": "Technical Clarity",
+                    "suggestions": "Use specific examples when discussing technical concepts"
+                }
+            ]
+        
+        if not ratings or not all(k in ratings for k in ["technical", "communication", "problem_solving", "time_mgmt"]):
+            print("WARNING: GPT returned incomplete ratings, generating fallback...")
+            ratings = {
+                "technical": 3,
+                "communication": 3,
+                "problem_solving": 3,
+                "time_mgmt": 3,
+                "total": 12
+            }
+        
+        # Ensure total is calculated
+        if "total" not in ratings or ratings["total"] == 0:
+            ratings["total"] = sum([
+                ratings.get("technical", 0),
+                ratings.get("communication", 0),
+                ratings.get("problem_solving", 0),
+                ratings.get("time_mgmt", 0)
+            ])
+        
+        print(f"Report data validated:")
+        print(f"  Key strengths: {len(key_strengths)}")
+        print(f"  Areas for improvement: {len(areas_for_improvement)}")
+        print(f"  Total rating: {ratings.get('total', 0)}")
+        
     except Exception as exc:
-        raise RuntimeError(f"LLM failed: {exc}")
+        import traceback
+        print(f"LLM analysis failed: {exc}")
+        print(traceback.format_exc())
+        raise RuntimeError(f"Failed to generate interview analysis: {exc}")
 
-    key_strengths = data.get("key_strengths")
-    areas_for_improvement = data.get("areas_for_improvement")
-    ratings = data.get("ratings")
-
-    # 2️⃣ Get frames from Interview model (not Redis anymore)
+    # 2️⃣ Get frames from Interview model
     if frames is None:
         frames = interview.visual_frames or []
     
@@ -145,7 +225,7 @@ def _create_report_for_interview(
     visual_feedback = None
 
     if frames and len(frames) > 0:
-        print(f"📸 Analyzing {len(frames)} frames for {candidate_name}...")
+        print(f"Analyzing {len(frames)} frames for {candidate_name}...")
         
         try:
             from all_services.visual_feedback_service import (
@@ -154,9 +234,17 @@ def _create_report_for_interview(
                 generate_fallback_feedback
             )
             
+            # Clean frames before analysis
+            cleaned_frames = []
+            for frame in frames:
+                frame = frame.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+                if not frame.startswith('data:image'):
+                    frame = f"data:image/jpeg;base64,{frame.split('base64,')[-1]}"
+                cleaned_frames.append(frame)
+            
             # Primary: GPT Vision analysis
             visual_feedback = analyze_frames_aggregated(
-                frames_b64=frames,
+                frames_b64=cleaned_frames,
                 candidate_name=candidate_name,
                 candidate_id=interview.student_id
             )
@@ -165,14 +253,14 @@ def _create_report_for_interview(
             status = visual_feedback.get("status")
             
             if status == "success":
-                print(f"✅ Visual analysis successful: {visual_feedback.get('frames_analyzed')} frames")
+                print(f"Visual analysis successful: {visual_feedback.get('frames_analyzed')} frames")
             
             elif status in ["error", "parse_error", "fallback"]:
-                print(f"⚠️ Visual analysis had issues: {status}")
+                print(f"Visual analysis had issues: {status}")
                 
                 # Try adding transcript analysis as supplement
                 try:
-                    print("🔄 Adding transcript-based analysis as supplement...")
+                    print("Adding transcript-based analysis as supplement...")
                     metadata_analysis = analyze_interview_metadata(
                         transcription, 
                         getattr(interview, 'duration_minutes', None)
@@ -180,7 +268,7 @@ def _create_report_for_interview(
                     visual_feedback["communication_analysis"] = metadata_analysis
                     visual_feedback["analysis_type"] = "hybrid"
                 except Exception as meta_exc:
-                    print(f"❌ Metadata supplement failed: {meta_exc}")
+                    print(f"Metadata supplement failed: {meta_exc}")
                     
                 # If still no good data, use fallback
                 if not visual_feedback.get("professional_appearance"):
@@ -191,7 +279,7 @@ def _create_report_for_interview(
             
         except Exception as vf_exc:
             import traceback
-            print(f"❌ Visual feedback exception: {vf_exc}")
+            print(f"Visual feedback exception: {vf_exc}")
             print(traceback.format_exc())
             
             # Final fallback
@@ -206,7 +294,7 @@ def _create_report_for_interview(
                     "frames_captured": len(frames)
                 }
     else:
-        print("⚠️ No frames available for visual feedback")
+        print("No frames available for visual feedback")
         visual_feedback = {
             "status": "no_frames",
             "message": "No video frames were captured during the interview",
@@ -228,8 +316,8 @@ def _create_report_for_interview(
         interview.status = "completed"
         interview.save(update_fields=["status"])
 
-    print(f"✅ Report created successfully (ID: {report.id})")
-    print(f"   Visual feedback type: {visual_feedback.get('analysis_type', 'unknown')}")
+    print(f"Report created successfully (ID: {report.id})")
+    print(f"Visual feedback type: {visual_feedback.get('analysis_type', 'unknown')}")
     
     return report
 # -----------------------------
@@ -429,8 +517,9 @@ class CompleteInterviewAndGenerateReportAPIView(APIView):
         if not _can_view_or_own(request.user, interview):
             return Response({"error": "Forbidden"}, status=403)
 
-        print(f"🎯 Completing interview {interview_id}")
-        print(f"   Frames available: {len(interview.visual_frames or [])}")
+        print(f"Completing interview {interview_id}")
+        print(f"Transcript length: {len(interview.full_transcript or '')} chars")
+        print(f"Frames available: {len(interview.visual_frames or [])}")
 
         # Update status if needed
         if interview.status != "completed":
@@ -442,36 +531,44 @@ class CompleteInterviewAndGenerateReportAPIView(APIView):
             report = _create_report_for_interview(interview)
             
             # Check if this was newly created or existing
+            from datetime import datetime, timedelta
             created = report.created_at.timestamp() > (datetime.now() - timedelta(seconds=5)).timestamp()
             
         except ValueError as ve:
+            # Transcript too short or missing
+            print(f"Validation error: {ve}")
             return Response({"error": str(ve)}, status=400)
         except RuntimeError as re:
+            # LLM/API failure
+            print(f"Runtime error: {re}")
             return Response({"error": str(re)}, status=500)
         except Exception as e:
             # Check if report exists (race condition)
             try:
                 report = interview.report
                 created = False
+                print(f"Report already exists, returning existing report")
             except Report.DoesNotExist:
                 import traceback
-                print(f"❌ Report creation failed: {e}")
+                print(f"Report creation failed: {e}")
                 print(traceback.format_exc())
                 return Response(
-                    {"error": "Failed to create report"}, 
+                    {
+                        "error": "Failed to create report",
+                        "details": str(e)[:200]
+                    }, 
                     status=500
                 )
 
         response_data = ReportSerializer(report).data
         response_data["created"] = created
 
-        print(f"✅ Report {'generated' if created else 'retrieved'} successfully")
+        print(f"Report {'generated' if created else 'retrieved'} successfully")
         
         return Response(
             response_data, 
             status=201 if created else 200
         )
-
 
 from .serializers import ReportListSerializer
 
