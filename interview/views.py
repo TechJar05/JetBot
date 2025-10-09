@@ -661,16 +661,14 @@ class MyInterviewsListView(generics.ListAPIView):
         return upcoming.union(past)
 
 
-
-
-
-from django.db.models import Count
-from django.db.models.functions import TruncDate
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import Count
+from django.db.models.functions import TruncDate
+from authentication.models import Interview, Report, User
 
-#  admin side analytic report
+
 class InterviewAnalyticsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -712,22 +710,35 @@ class InterviewAnalyticsAPIView(APIView):
         difficulty_counts = Interview.objects.values("difficulty_level").annotate(count=Count("id"))
         data["difficulty_distribution"] = list(difficulty_counts)
 
-        # 3. Top 3 Centers by Student Count
+        # 3. Top 3 Centers by Student Count (exclude None/empty/unknown)
         top_centers = (
-            User.objects.values("center")
-            .annotate(student_count=Count("id"))
-            .order_by("-student_count")[:3]
+            User.objects.exclude(center__isnull=True)
+                        .exclude(center__exact="")
+                        .exclude(center__iexact="unknown")
+                        .values("center")
+                        .annotate(student_count=Count("id"))
+                        .order_by("-student_count")[:3]
         )
         data["top_centers"] = list(top_centers)
 
-        # 4. Daily Interview Count
-        daily_counts = (
-            Interview.objects.annotate(date=TruncDate("scheduled_time"))
-            .values("date")
-            .annotate(count=Count("id"))
-            .order_by("date")
+        # 4. Daily Interview Count (from Report.created_at)
+        daily_counts_qs = (
+            Report.objects.annotate(date=TruncDate("created_at"))
+                          .values("date")
+                          .annotate(count=Count("id"))
+                          .order_by("date")
         )
-        data["daily_interview_count"] = list(daily_counts)
+
+        # Format date as dd-mm-yyyy
+        daily_counts = [
+            {
+                "date": item["date"].strftime("%d-%m-%Y"),
+                "count": item["count"]
+            }
+            for item in daily_counts_qs
+        ]
+
+        data["daily_interview_count"] = daily_counts
 
         return Response(data)
 
