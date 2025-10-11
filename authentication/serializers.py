@@ -5,6 +5,9 @@ from authentication.models import *
 
 
 
+from rest_framework import serializers
+from django.contrib.auth.password_validation import validate_password
+from .models import User
 
 class UserRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
@@ -16,20 +19,16 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ('name', 'courseName', 'email', 'mobileNumber', 'center', 'batchNo', 'password', 'role')
 
-    def create(self, validated_data):
-        user = User(
-            email=validated_data['email'],
-            name=validated_data.get('name'),
-            course_name=validated_data.get('course_name'),
-            mobile_no=validated_data.get('mobile_no'),
-            center=validated_data.get('center'),
-            batch_no=validated_data.get('batch_no'),
-            role=validated_data.get('role', 'student')
-        )
-        user.set_password(validated_data['password'])
-        user.save()
-        return user
+    def validate_mobileNumber(self, value):
+        """Check if mobile number already exists."""
+        if User.objects.filter(mobile_no=value).exists():
+            raise serializers.ValidationError("This mobile number is already registered.")
+        return value
 
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("This email is already registered.")
+        return value
 
 class UserLoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
