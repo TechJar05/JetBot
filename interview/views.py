@@ -846,17 +846,36 @@ class StudentAnalyticsAPIView(APIView):
 from rest_framework.generics import ListAPIView
 
 class InterviewTableAPIView(ListAPIView):
+    """
+    Paginated API for interviews that have reports.
+    Returns three sections:
+    - interview_table
+    - interview_ratings
+    - visual_feedback
+    """
     permission_classes = [IsAuthenticated]
-    pagination_class = ReportCursorPagination  # <-- use your existing pagination
-    
+    pagination_class = ReportCursorPagination
 
     def get_queryset(self):
-        return Interview.objects.select_related('student', 'report').all().order_by('-scheduled_time')
+        """
+        Only include interviews that have a related report.
+        """
+        return (
+            Interview.objects
+            .select_related("student", "report")
+            .filter(report__isnull=False)
+            .order_by("-scheduled_time")
+        )
 
     def list(self, request, *args, **kwargs):
-        page = self.paginate_queryset(self.get_queryset())
+        """
+        Paginate queryset and serialize all three sections.
+        """
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+
         if page is not None:
-            # serialize each section separately
+            # Serialize each section separately
             interview_table = InterviewTableSerializer(page, many=True).data
             interview_ratings = InterviewRatingsSerializer(page, many=True).data
             visual_feedback = VisualFeedbackSerializer(page, many=True).data
@@ -867,11 +886,10 @@ class InterviewTableAPIView(ListAPIView):
                 "visual_feedback": visual_feedback
             })
 
-        # fallback if pagination is not applied
-        interviews = self.get_queryset()
-        interview_table = InterviewTableSerializer(interviews, many=True).data
-        interview_ratings = InterviewRatingsSerializer(interviews, many=True).data
-        visual_feedback = VisualFeedbackSerializer(interviews, many=True).data
+        # fallback if pagination is not applied (should rarely hit)
+        interview_table = InterviewTableSerializer(queryset, many=True).data
+        interview_ratings = InterviewRatingsSerializer(queryset, many=True).data
+        visual_feedback = VisualFeedbackSerializer(queryset, many=True).data
 
         return Response({
             "interview_table": interview_table,

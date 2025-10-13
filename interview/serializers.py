@@ -100,6 +100,72 @@ class InterviewTableSerializer(serializers.ModelSerializer):
 
 
 # ============================================
+# INTERVIEW RATINGS SERIALIZER (FIXED)
+# ============================================
+
+class InterviewRatingsSerializer(serializers.ModelSerializer):
+    """Serializer for interview ratings table"""
+    mail_id = serializers.EmailField(source="student.email")
+
+    # Replaced scheduled_time with report.created_at in IST readable format
+    interview_ts = serializers.SerializerMethodField()
+
+    # Ratings from Report
+    technical_rating = serializers.SerializerMethodField()
+    communication_rating = serializers.SerializerMethodField()
+    problem_solving_rating = serializers.SerializerMethodField()
+    time_management_rating = serializers.SerializerMethodField()
+    total_rating = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Interview
+        fields = [
+            "mail_id",
+            "technical_rating",
+            "communication_rating",
+            "problem_solving_rating",
+            "time_management_rating",
+            "total_rating",
+            "interview_ts",
+        ]
+
+    # ✅ Format interview timestamp from Report.created_at
+    def get_interview_ts(self, obj):
+        try:
+            report = obj.report  # one-to-one relation (Interview -> Report)
+            if not report or not report.created_at:
+                return None
+            ist = pytz.timezone("Asia/Kolkata")
+            local_dt = timezone.localtime(report.created_at, ist)
+            return local_dt.strftime("%A, %d/%m/%Y %H:%M:%S")
+        except Report.DoesNotExist:
+            return None
+
+    # --- Safely get ratings from Report JSON field ---
+    def _get_rating(self, obj, key, default=0):
+        """Safely get rating from Report.ratings JSON field"""
+        try:
+            report = obj.report
+            ratings = report.ratings or {}
+            return ratings.get(key, default)
+        except Report.DoesNotExist:
+            return default
+
+    def get_technical_rating(self, obj):
+        return self._get_rating(obj, "technical")
+
+    def get_communication_rating(self, obj):
+        return self._get_rating(obj, "communication")
+
+    def get_problem_solving_rating(self, obj):
+        return self._get_rating(obj, "problem_solving")
+
+    def get_time_management_rating(self, obj):
+        return self._get_rating(obj, "time_mgmt")
+
+    def get_total_rating(self, obj):
+        return self._get_rating(obj, "total")
+# ============================================
 # REPORT SERIALIZERS
 # ============================================
 
@@ -341,72 +407,6 @@ class VisualFeedbackSerializer(serializers.ModelSerializer):
         return len(obj.visual_frames or [])
 
 
-# ============================================
-# INTERVIEW RATINGS SERIALIZER (FIXED)
-# ============================================
-
-class InterviewRatingsSerializer(serializers.ModelSerializer):
-    """Serializer for interview ratings table"""
-    mail_id = serializers.EmailField(source="student.email")
-
-    # Replaced scheduled_time with report.created_at in IST readable format
-    interview_ts = serializers.SerializerMethodField()
-
-    # Ratings from Report
-    technical_rating = serializers.SerializerMethodField()
-    communication_rating = serializers.SerializerMethodField()
-    problem_solving_rating = serializers.SerializerMethodField()
-    time_management_rating = serializers.SerializerMethodField()
-    total_rating = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Interview
-        fields = [
-            "mail_id",
-            "technical_rating",
-            "communication_rating",
-            "problem_solving_rating",
-            "time_management_rating",
-            "total_rating",
-            "interview_ts",
-        ]
-
-    # ✅ Format interview timestamp from Report.created_at
-    def get_interview_ts(self, obj):
-        try:
-            report = obj.report  # one-to-one relation (Interview -> Report)
-            if not report or not report.created_at:
-                return None
-            ist = pytz.timezone("Asia/Kolkata")
-            local_dt = timezone.localtime(report.created_at, ist)
-            return local_dt.strftime("%A, %d/%m/%Y %H:%M:%S")
-        except Report.DoesNotExist:
-            return None
-
-    # --- Safely get ratings from Report JSON field ---
-    def _get_rating(self, obj, key, default=0):
-        """Safely get rating from Report.ratings JSON field"""
-        try:
-            report = obj.report
-            ratings = report.ratings or {}
-            return ratings.get(key, default)
-        except Report.DoesNotExist:
-            return default
-
-    def get_technical_rating(self, obj):
-        return self._get_rating(obj, "technical")
-
-    def get_communication_rating(self, obj):
-        return self._get_rating(obj, "communication")
-
-    def get_problem_solving_rating(self, obj):
-        return self._get_rating(obj, "problem_solving")
-
-    def get_time_management_rating(self, obj):
-        return self._get_rating(obj, "time_mgmt")
-
-    def get_total_rating(self, obj):
-        return self._get_rating(obj, "total")
 
 # ============================================
 # ANALYTICS SERIALIZERS
