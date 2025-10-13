@@ -18,6 +18,7 @@ from rest_framework import status
 from authentication.models import Interview
 from all_services.frames import append_frames_to_cache,pop_frames_from_cache
 from typing import Any, Dict, List, Optional
+from all_services.pagination import ReportCursorPagination
 
 def _can_view_or_own(user: User, interview: Interview) -> bool:
     if not user or not user.is_authenticated:
@@ -573,25 +574,47 @@ class CompleteInterviewAndGenerateReportAPIView(APIView):
 from .serializers import ReportListSerializer
 
 
+# class ReportListView(generics.ListAPIView):
+#     """
+#     Admin: all reports
+#     Student: only their reports
+#     """
+#     serializer_class = ReportListSerializer
+
+#     def get_queryset(self):
+#         user = self.request.user
+#         qs = Report.objects.select_related("interview", "interview__student")  # join with interview and student
+
+#         if not user.is_authenticated:
+#             return Report.objects.none()
+
+#         if getattr(user, "role", None) in ("admin", "super_admin"):
+#             return qs.order_by("-created_at")  # Admin sees all reports, ordered by created_at
+
+#         # Only return the reports that belong to the logged-in student
+#         return qs.filter(interview__student=user).order_by("-created_at")  # Student only sees their own reports
+
+
 class ReportListView(generics.ListAPIView):
     """
     Admin: all reports
     Student: only their reports
+    Paginated using CursorPagination for performance.
     """
     serializer_class = ReportListSerializer
+    pagination_class = ReportCursorPagination  # ✅ production pagination
 
     def get_queryset(self):
         user = self.request.user
-        qs = Report.objects.select_related("interview", "interview__student")  # join with interview and student
+        qs = Report.objects.select_related("interview", "interview__student")
 
         if not user.is_authenticated:
             return Report.objects.none()
 
         if getattr(user, "role", None) in ("admin", "super_admin"):
-            return qs.order_by("-created_at")  # Admin sees all reports, ordered by created_at
+            return qs.order_by("-created_at")
 
-        # Only return the reports that belong to the logged-in student
-        return qs.filter(interview__student=user).order_by("-created_at")  # Student only sees their own reports
+        return qs.filter(interview__student=user).order_by("-created_at")
 
 class ReportDetailView(generics.RetrieveAPIView):
     """
