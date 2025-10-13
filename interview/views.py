@@ -848,7 +848,7 @@ from rest_framework.generics import ListAPIView
 class InterviewTableAPIView(ListAPIView):
     permission_classes = [IsAuthenticated]
     pagination_class = ReportCursorPagination  # <-- use your existing pagination
-    serializer_class = InterviewTableSerializer  # default serializer for paginated results
+    
 
     def get_queryset(self):
         return Interview.objects.select_related('student', 'report').all().order_by('-scheduled_time')
