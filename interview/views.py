@@ -843,17 +843,32 @@ class StudentAnalyticsAPIView(APIView):
         })
 
 
+from rest_framework.generics import ListAPIView
 
-
-
-
-#  admin side table data 
-class InterviewTableAPIView(APIView):
+class InterviewTableAPIView(ListAPIView):
     permission_classes = [IsAuthenticated]
+    pagination_class = ReportCursorPagination  # <-- use your existing pagination
+    serializer_class = InterviewTableSerializer  # default serializer for paginated results
 
-    def get(self, request):
-        interviews = Interview.objects.select_related('student', 'report').all().order_by('-scheduled_time')
+    def get_queryset(self):
+        return Interview.objects.select_related('student', 'report').all().order_by('-scheduled_time')
 
+    def list(self, request, *args, **kwargs):
+        page = self.paginate_queryset(self.get_queryset())
+        if page is not None:
+            # serialize each section separately
+            interview_table = InterviewTableSerializer(page, many=True).data
+            interview_ratings = InterviewRatingsSerializer(page, many=True).data
+            visual_feedback = VisualFeedbackSerializer(page, many=True).data
+
+            return self.get_paginated_response({
+                "interview_table": interview_table,
+                "interview_ratings": interview_ratings,
+                "visual_feedback": visual_feedback
+            })
+
+        # fallback if pagination is not applied
+        interviews = self.get_queryset()
         interview_table = InterviewTableSerializer(interviews, many=True).data
         interview_ratings = InterviewRatingsSerializer(interviews, many=True).data
         visual_feedback = VisualFeedbackSerializer(interviews, many=True).data
@@ -863,6 +878,23 @@ class InterviewTableAPIView(APIView):
             "interview_ratings": interview_ratings,
             "visual_feedback": visual_feedback
         })
+
+#  admin side table data 
+# class InterviewTableAPIView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request):
+#         interviews = Interview.objects.select_related('student', 'report').all().order_by('-scheduled_time')
+
+#         interview_table = InterviewTableSerializer(interviews, many=True).data
+#         interview_ratings = InterviewRatingsSerializer(interviews, many=True).data
+#         visual_feedback = VisualFeedbackSerializer(interviews, many=True).data
+
+#         return Response({
+#             "interview_table": interview_table,
+#             "interview_ratings": interview_ratings,
+#             "visual_feedback": visual_feedback
+#         })
 
 
 class UploadFramesAPIView(APIView):
