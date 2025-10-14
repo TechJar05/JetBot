@@ -897,6 +897,9 @@ class InterviewTableAPIView(ListAPIView):
             "visual_feedback": visual_feedback
         })
 
+
+
+
 #  admin side table data 
 # class InterviewTableAPIView(APIView):
 #     permission_classes = [IsAuthenticated]
@@ -966,3 +969,69 @@ class UploadFramesAPIView(APIView):
             "frames_stored": len(interview.visual_frames),
             "frames_received": len(valid_images)
         }, status=status.HTTP_200_OK)
+        
+    
+
+
+# excel file downlaod
+import io
+from django.utils import timezone
+from django.http import HttpResponse
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+
+import pandas as pd
+
+
+from .serializers import (
+    InterviewTableSerializer,
+    InterviewRatingsSerializer,
+    VisualFeedbackSerializer,
+)
+
+class InterviewExportExcelAPIView(APIView):
+    """
+    Export all interviews with reports into a single Excel file with
+    three sheets: 'interview_table', 'interview_ratings', 'visual_feedback'.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            Interview.objects
+            .select_related("student", "report")
+            # .filter(report__isnull=False)
+            .order_by("-scheduled_time")
+        )
+
+    def get(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+
+        # Serialize each section
+        table_data = InterviewTableSerializer(queryset, many=True).data
+        ratings_data = InterviewRatingsSerializer(queryset, many=True).data
+        visual_data = VisualFeedbackSerializer(queryset, many=True).data
+
+        # Convert serialized JSON-like data to pandas DataFrames.
+        # If nested structures exist, you may want to normalize them (see notes below).
+        df_table = pd.DataFrame(table_data)
+        df_ratings = pd.DataFrame(ratings_data)
+        df_visual = pd.DataFrame(visual_data)
+
+        buffer = io.BytesIO()
+
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            df_table.to_excel(writer, sheet_name="interview_table", index=False)
+            df_ratings.to_excel(writer, sheet_name="interview_ratings", index=False)
+            df_visual.to_excel(writer, sheet_name="visual_feedback", index=False)
+
+        buffer.seek(0)
+
+        filename = f"interviews_{timezone.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
