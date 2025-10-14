@@ -3,13 +3,13 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from django.contrib.admin import SimpleListFilter
-from .models import User, Interview, Report, AnalyticsExport
 from django.utils import timezone
-from datetime import date
-from django.contrib import admin
-from .models import Interview
+from .models import User, Interview, Report, AnalyticsExport
 
-class DateFilter(admin.SimpleListFilter):
+# --------------------------
+# Custom Date Filter for Interview
+# --------------------------
+class DateFilter(SimpleListFilter):
     title = "Interview Date"
     parameter_name = "created_at"
 
@@ -39,9 +39,8 @@ class DateFilter(admin.SimpleListFilter):
         return queryset
 
 
-
 # --------------------------
-# Custom Filter: Center
+# Custom Center Filter for Users
 # --------------------------
 class CenterListFilter(SimpleListFilter):
     title = "Center"
@@ -68,7 +67,7 @@ class UserAdmin(BaseUserAdmin):
         "name",
         "center",
         "mobile_no",
-        "created_at",  # ✅ Added created_at to list
+        "created_at",
         "is_active",
         "is_staff",
     )
@@ -77,7 +76,7 @@ class UserAdmin(BaseUserAdmin):
         "is_active",
         "is_staff",
         CenterListFilter,
-        "created_at",  # ✅ Django automatically provides a date filter
+        "created_at",  # Default Django date hierarchy filter
     )
     search_fields = ("email", "name", "mobile_no", "course_name", "center")
 
@@ -99,7 +98,7 @@ class UserAdmin(BaseUserAdmin):
 
     readonly_fields = ("created_at",)
 
-    # ✅ Display total count for current filters
+    # Show total count for current filters
     def changelist_view(self, request, extra_context=None):
         response = super().changelist_view(request, extra_context)
         try:
@@ -119,16 +118,27 @@ class UserAdmin(BaseUserAdmin):
 # --------------------------
 class InterviewAdmin(admin.ModelAdmin):
     list_display = ("id", "student", "difficulty_level", "scheduled_time", "status", "created_at")
-    list_filter = ("difficulty_level", "status", DateFilter)  # ✅ Added custom date filter
+    list_filter = ("difficulty_level", "status", DateFilter)
     search_fields = ("student__email", "jd")
     ordering = ("-created_at",)
 
-    # ✅ Optional: Show only today's completed interviews by default
+    # Show all data by default (do not filter here)
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        today = timezone.now().date()
-        # Show today's completed interviews by default
-        return qs.filter(created_at__date=today, status="completed")
+        return super().get_queryset(request)
+
+    # Optional: total count summary
+    def changelist_view(self, request, extra_context=None):
+        response = super().changelist_view(request, extra_context)
+        try:
+            qs = response.context_data["cl"].queryset
+            total_count = qs.count()
+            response.context_data["summary"] = format_html(
+                "<h3 style='margin-top:10px;'>📊 Total Interviews for Selected Filters: <b>{}</b></h3>",
+                total_count
+            )
+        except Exception:
+            pass
+        return response
 
 
 # --------------------------
