@@ -95,29 +95,61 @@ def analyze_frames_aggregated(frames_b64: list[str], candidate_name=None, candid
     candidate_display = candidate_name or f"Candidate {candidate_id}" if candidate_id else "the candidate"
 
     # Prepare prompt for aggregated analysis
-    prompt = f"""You are analyzing {len(valid_images)} video frames from an interview with {candidate_display}.
+#     prompt = f"""You are analyzing {len(valid_images)} video frames from an interview with {candidate_display}.
 
-Provide a comprehensive assessment across ALL frames. For each category, describe patterns and consistency:
+# Provide a comprehensive assessment across ALL frames. For each category, describe patterns and consistency:
 
-CRITICAL: Be SPECIFIC and DETAILED. Use concrete visual descriptions (colors, patterns, positions, objects).
-Each description should be 25-40 words with specific observations.
+# CRITICAL: Be SPECIFIC and DETAILED. Use concrete visual descriptions (colors, patterns, positions, objects).
+# Each description should be 25-40 words with specific observations.
 
-Analyze these aspects:
+# Analyze these aspects:
 
-1. PROFESSIONAL APPEARANCE: Clothing style, colors, patterns, grooming, accessories, consistency across frames
-2. BODY LANGUAGE: Posture, hand gestures, positioning, movement, confidence indicators, consistency
-3. FACIAL EXPRESSIONS: Eye contact, facial movements, expressions, engagement level, emotional cues
-4. ENVIRONMENT: Background details, lighting, room setup, visible objects, professionalism of setting
-5. DISTRACTIONS: Any movements, objects, technical issues, or environmental factors that may impact the interview
+# 1. PROFESSIONAL APPEARANCE: Clothing style, colors, patterns, grooming, accessories, consistency across frames
+# 2. BODY LANGUAGE: Posture, hand gestures, positioning, movement, confidence indicators, consistency
+# 3. FACIAL EXPRESSIONS: Eye contact, facial movements, expressions, engagement level, emotional cues
+# 4. ENVIRONMENT: Background details, lighting, room setup, visible objects, professionalism of setting
+# 5. DISTRACTIONS: Any movements, objects, technical issues, or environmental factors that may impact the interview
+
+# Return ONLY valid JSON with these exact keys:
+# {{
+#   "professional_appearance": "detailed observation",
+#   "body_language": "detailed observation",
+#   "facial_expressions": "detailed observation",
+#   "environment": "detailed observation",
+#   "distractions": "detailed observation"
+# }}"""
+
+    prompt = f"""
+You are analyzing {len(valid_images)} video frames from an interview with {candidate_display}.
+
+Your goal is to provide a **clear, structured, and easy-to-read** visual assessment.
+
+⚙️ INSTRUCTIONS:
+- Write feedback in **bullet points** (• or -)
+- Each bullet should be **10–20 words**, focused and easy to understand.
+- Use **simple, direct language** — avoid long paragraphs.
+- Be **specific** with visual details (colors, gestures, lighting, etc.)
+- Focus on **patterns and consistency** across all frames.
+
+Analyze and give feedback under these exact 5 categories:
+
+1. PROFESSIONAL APPEARANCE – clothing, colors, grooming, accessories, consistency.
+2. BODY LANGUAGE – posture, gestures, positioning, confidence, movement consistency.
+3. FACIAL EXPRESSIONS – eye contact, expressions, engagement, emotional cues.
+4. ENVIRONMENT – background, lighting, objects, professionalism of setup.
+5. DISTRACTIONS – movements, objects, noise, technical or environmental distractions.
 
 Return ONLY valid JSON with these exact keys:
 {{
-  "professional_appearance": "detailed observation",
-  "body_language": "detailed observation",
-  "facial_expressions": "detailed observation",
-  "environment": "detailed observation",
-  "distractions": "detailed observation"
-}}"""
+  "professional_appearance": ["point 1", "point 2", ...],
+  "body_language": ["point 1", "point 2", ...],
+  "facial_expressions": ["point 1", "point 2", ...],
+  "environment": ["point 1", "point 2", ...],
+  "distractions": ["point 1", "point 2", ...]
+}}
+"""
+
+
 
     try:
         # Build message content with all images

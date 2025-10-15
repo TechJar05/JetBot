@@ -39,6 +39,24 @@ class DateFilter(SimpleListFilter):
         return queryset
 
 
+
+# --------------------------
+# Custom Center Filter for Interviews
+# --------------------------
+class InterviewCenterListFilter(SimpleListFilter):
+    title = "Center"
+    parameter_name = "student__center"
+
+    def lookups(self, request, model_admin):
+        centers = User.objects.values_list("center", flat=True).distinct()
+        return [(center, center) for center in centers if center]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(student__center=self.value())
+        return queryset
+
+
 # --------------------------
 # Custom Center Filter for Users
 # --------------------------
@@ -118,15 +136,13 @@ class UserAdmin(BaseUserAdmin):
 # --------------------------
 class InterviewAdmin(admin.ModelAdmin):
     list_display = ("id", "student", "difficulty_level", "scheduled_time", "status", "created_at")
-    list_filter = ("difficulty_level", "status", DateFilter)
+    list_filter = ("difficulty_level", "status", InterviewCenterListFilter, DateFilter)
     search_fields = ("student__email", "jd")
     ordering = ("-created_at",)
 
-    # Show all data by default (do not filter here)
     def get_queryset(self, request):
         return super().get_queryset(request)
 
-    # Optional: total count summary
     def changelist_view(self, request, extra_context=None):
         response = super().changelist_view(request, extra_context)
         try:
@@ -139,7 +155,6 @@ class InterviewAdmin(admin.ModelAdmin):
         except Exception:
             pass
         return response
-
 
 # --------------------------
 # Report Admin
@@ -158,6 +173,11 @@ class AnalyticsExportAdmin(admin.ModelAdmin):
     list_filter = ("status",)
     search_fields = ("interview__student__email",)
     ordering = ("-exported_at",)
+
+
+
+
+
 
 
 # --------------------------

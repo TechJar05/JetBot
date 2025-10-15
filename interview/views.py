@@ -1,6 +1,8 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions, generics
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.generics import ListAPIView
 from django.utils import timezone
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -11,14 +13,19 @@ from .services import process_jd_file   # your PDF text extractor
 from all_services.question_generator import generate_interview_questions, generate_chat_completion # LLM question gen
 import json
 from all_services.visual_feedback_service import analyze_frames_aggregated, analyze_interview_metadata
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
 from authentication.models import Interview
 from all_services.frames import append_frames_to_cache,pop_frames_from_cache
 from typing import Any, Dict, List, Optional
 from all_services.pagination import ReportCursorPagination
+from django.db.models import Count
+from django.db.models.functions import TruncDate
+from authentication.models import Interview, Report, User
+import io
+from django.http import HttpResponse
+import pandas as pd
+from .serializers import (InterviewTableSerializer,InterviewRatingsSerializer,VisualFeedbackSerializer,)
+
+
 
 def _can_view_or_own(user: User, interview: Interview) -> bool:
     if not user or not user.is_authenticated:
@@ -321,6 +328,8 @@ def _create_report_for_interview(
     print(f"Visual feedback type: {visual_feedback.get('analysis_type', 'unknown')}")
     
     return report
+
+
 # -----------------------------
 # Permissions
 # -----------------------------
@@ -684,12 +693,6 @@ class MyInterviewsListView(generics.ListAPIView):
         return upcoming.union(past)
 
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from django.db.models import Count
-from django.db.models.functions import TruncDate
-from authentication.models import Interview, Report, User
 
 
 class InterviewAnalyticsAPIView(APIView):
@@ -843,7 +846,7 @@ class StudentAnalyticsAPIView(APIView):
         })
 
 
-from rest_framework.generics import ListAPIView
+
 
 class InterviewTableAPIView(ListAPIView):
     """
@@ -897,25 +900,6 @@ class InterviewTableAPIView(ListAPIView):
             "visual_feedback": visual_feedback
         })
 
-
-
-
-#  admin side table data 
-# class InterviewTableAPIView(APIView):
-#     permission_classes = [IsAuthenticated]
-
-#     def get(self, request):
-#         interviews = Interview.objects.select_related('student', 'report').all().order_by('-scheduled_time')
-
-#         interview_table = InterviewTableSerializer(interviews, many=True).data
-#         interview_ratings = InterviewRatingsSerializer(interviews, many=True).data
-#         visual_feedback = VisualFeedbackSerializer(interviews, many=True).data
-
-#         return Response({
-#             "interview_table": interview_table,
-#             "interview_ratings": interview_ratings,
-#             "visual_feedback": visual_feedback
-#         })
 
 
 class UploadFramesAPIView(APIView):
@@ -974,20 +958,6 @@ class UploadFramesAPIView(APIView):
 
 
 # excel file downlaod
-import io
-from django.utils import timezone
-from django.http import HttpResponse
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-
-import pandas as pd
-
-
-from .serializers import (
-    InterviewTableSerializer,
-    InterviewRatingsSerializer,
-    VisualFeedbackSerializer,
-)
 
 class InterviewExportExcelAPIView(APIView):
     """
