@@ -165,6 +165,9 @@ class InterviewRatingsSerializer(serializers.ModelSerializer):
 
     def get_total_rating(self, obj):
         return self._get_rating(obj, "total")
+    
+    
+    
 # ============================================
 # REPORT SERIALIZERS
 # ============================================
@@ -310,6 +313,8 @@ class ReportListSerializer(serializers.ModelSerializer):
         ist = pytz.timezone("Asia/Kolkata")
         local_time = timezone.localtime(time, ist)
         return local_time.strftime("%A, %d/%m/%Y %H:%M:%S") 
+    
+    
 # ============================================
 # VISUAL FEEDBACK SERIALIZER (FIXED)
 # ============================================

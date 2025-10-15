@@ -7,7 +7,10 @@ from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import UserRegisterSerializer, UserLoginSerializer
 from django.contrib.auth import get_user_model
-
+import random
+from django.core.mail import send_mail
+from django.conf import settings
+from .models import PasswordResetOTP
 User = get_user_model()
 
 
@@ -87,16 +90,6 @@ class LoginAPIView(APIView):
 
 
 
-import random
-from django.core.mail import send_mail
-from django.conf import settings
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.contrib.auth import get_user_model
-from .models import PasswordResetOTP
-
-User = get_user_model()
 
 
 # 1️⃣ Send OTP
