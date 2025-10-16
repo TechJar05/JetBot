@@ -39,38 +39,6 @@ def generate_chat_completion(
         raise RuntimeError(f"OpenAI API error: {str(exc)}") from exc
 
 
-# -------------------------
-# Domain-specific logic
-# -------------------------
-# def generate_interview_questions(jd_text: str, difficulty: str = "beginner") -> List[str]:
-#     """
-#     Generate a list of interview questions from a JD and difficulty level.
-
-#     Returns a Python list of questions.
-#     """
-#     prompt = f"""
-#     You are an AI interview assistant. Based on the following job description, 
-#     generate 5  interview questions for a {difficulty} level candidate.
-
-#     Job Description:
-#     {jd_text}
-
-#     Return the questions as a numbered JSON list of strings, e.g.:
-#     ["Question 1", "Question 2", "Question 3"]
-#     """
-
-#     raw_output = generate_chat_completion(prompt, model="gpt-3.5-turbo", max_tokens=600)
-
-#     # Try parsing JSON first
-#     try:
-#         questions = json.loads(raw_output)
-#         if isinstance(questions, list):
-#             return [str(q).strip() for q in questions]
-#     except json.JSONDecodeError:
-#         pass
-
-#     # Fallback: split by lines
-#     return [line.strip(" -0123456789.") for line in raw_output.splitlines() if line.strip()]
 
 
 def generate_interview_questions(jd_text: str, difficulty: str) -> List[str]:

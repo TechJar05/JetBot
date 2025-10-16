@@ -412,7 +412,6 @@ class VisualFeedbackSerializer(serializers.ModelSerializer):
         return len(obj.visual_frames or [])
 
 
-
 # ============================================
 # ANALYTICS SERIALIZERS
 # ============================================
