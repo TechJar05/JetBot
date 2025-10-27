@@ -15,10 +15,13 @@ import asyncio
 
 logger = logging.getLogger(__name__)
 
-
-ELEVEN_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-VOICE_ID = os.getenv("VOICE_ID")
-MODEL_ID = os.getenv("MODEL_ID")
+ELEVEN_API_KEY = "sk_fd451ccf28b2fca77d0a86297894245f614c0a403c2a0e14"
+# ELEVEN_API_KEY = getattr(__import__("django.conf").conf.settings, "ELEVEN_API_KEY", None) \
+#                  if "django.conf" in globals() else None
+ELEVEN_API_KEY = ELEVEN_API_KEY or os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")
+VOICE_ID ="vWovrQmwpIKB9L65OBCh"
+# VOICE_ID = os.getenv("ELEVEN_VOICE_ID") or getattr(__import__("django.conf").conf.settings, "ELEVEN_VOICE_ID", None) or "vWovrQmwpIKB9L65OBCh"
+MODEL_ID = "eleven_flash_v2_5"
 
 ELEVEN_WS_URL = lambda: f"wss://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}/stream-input?model_id={MODEL_ID}"
 

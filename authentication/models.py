@@ -3,8 +3,8 @@ from django.db import models
 # Create your models here.
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
-from django.utils import timezone
-import datetime 
+ 
+ 
 # --------------------------
 # User Manager
 # --------------------------
@@ -100,10 +100,10 @@ class Interview(models.Model):
 class Report(models.Model):
     id = models.AutoField(primary_key=True)
     interview = models.OneToOneField(Interview, on_delete=models.CASCADE, related_name="report")
-    key_strengths = models.JSONField(null=True, blank=True)  
-    areas_for_improvement = models.JSONField(null=True, blank=True)  
-    visual_feedback = models.JSONField(null=True, blank=True)  
-    ratings = models.JSONField(null=True, blank=True)  
+    key_strengths = models.JSONField(null=True, blank=True)  # [{"area": "DSA", "example": "...", "rating": 4}]
+    areas_for_improvement = models.JSONField(null=True, blank=True)  # [{"area": "Comm", "suggestions": "..."}]
+    visual_feedback = models.JSONField(null=True, blank=True)  # [{"appearance": "Formal", "eye_contact": "Good"}]
+    ratings = models.JSONField(null=True, blank=True)  # {"technical":4,"communication":3,"problem_solving":4,"time_mgmt":3,"total":14}
  
     created_at = models.DateTimeField(auto_now_add=True)
  
@@ -133,7 +133,8 @@ class AnalyticsExport(models.Model):
 
 from django.db import models
 from django.contrib.auth import get_user_model
-
+from django.utils import timezone
+import datetime
 
 User = get_user_model()
 

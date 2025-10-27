@@ -2,22 +2,20 @@ import json
 import asyncio
 import websockets
 import aiohttp
-import os
 from urllib.parse import urlencode
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
 from authentication.models import Interview
 
-
 # -------------------------
 # CONFIG
 # -------------------------
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-VOICE_ID = os.getenv("VOICE_ID")
-MODEL_ID = os.getenv("MODEL_ID")
+ELEVENLABS_API_KEY = "sk_fd451ccf28b2fca77d0a86297894245f614c0a403c2a0e14"
+VOICE_ID = "vWovrQmwpIKB9L65OBCh"
+MODEL_ID = "eleven_flash_v2_5"
 
-ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+ASSEMBLYAI_API_KEY = "32c3f5ecfc734011b13dd74e53f71f8c"
 
 
 # -------------------------
@@ -29,7 +27,6 @@ def get_interview(interview_id, user):
         return Interview.objects.get(id=interview_id, student=user)
     except Interview.DoesNotExist:
         return None
-
 
 @database_sync_to_async
 def save_full_transcript(interview, transcripts):
