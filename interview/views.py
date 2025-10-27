@@ -4,27 +4,19 @@ from rest_framework import status, permissions, generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.shortcuts import get_object_or_404
-from django.utils.timezone import now, datetime, timedelta
-from authentication.models import Interview, User, Report
-from .serializers import InterviewSerializer, StudentSearchSerializer, ReportSerializer,InterviewTableSerializer,VisualFeedbackSerializer,InterviewRatingsSerializer
-from .services import process_jd_file   # your PDF text extractor
-from all_services.question_generator import generate_interview_questions, generate_chat_completion # LLM question gen
-import json
-from all_services.visual_feedback_service import analyze_frames_aggregated, analyze_interview_metadata
-from authentication.models import Interview
-from all_services.frames import append_frames_to_cache,pop_frames_from_cache
-from typing import Any, Dict, List, Optional
+from django.utils.timezone import now
+from interview.serializers import InterviewSerializer, StudentSearchSerializer, ReportSerializer, InterviewTableSerializer, VisualFeedbackSerializer, InterviewRatingsSerializer, ReportListSerializer
+from all_services.extraction_service import process_jd_file   
+from all_services.question_generator import generate_interview_questions
 from all_services.pagination import ReportCursorPagination
-from django.db.models import Count
 from django.db.models.functions import TruncDate
 from authentication.models import Interview, Report, User
 import io
 from django.http import HttpResponse
 import pandas as pd
-from .serializers import (InterviewTableSerializer,InterviewRatingsSerializer,VisualFeedbackSerializer,)
-
+from  all_services.report_service import _create_report_for_interview
 
 
 def _can_view_or_own(user: User, interview: Interview) -> bool:
@@ -43,296 +35,9 @@ class IsStudent(permissions.BasePermission):
             and getattr(request.user, "role", None) == "student"
         )
         
-
-# views.py - Updated _create_report_for_interview function
-
-def _create_report_for_interview(
-    interview: Interview,
-    frames: Optional[List[str]] = None,
-) -> Report:
-    """
-    Create comprehensive interview report with GPT Vision-based visual feedback.
-    Includes validation to prevent empty reports.
-    """
-    # Return existing report if already created (idempotent)
-    try:
-        return interview.report
-    except Report.DoesNotExist:
-        pass
-
-    transcription = (interview.full_transcript or "").strip()
-    
-    # Validation: Ensure transcript has meaningful content
-    if not transcription or len(transcription) < 50:
-        raise ValueError(
-            f"Interview transcription is too short ({len(transcription)} chars). "
-            "Minimum 50 characters required for analysis."
-        )
-
-    print(f"Generating report for interview {interview.id}")
-    print(f"Transcript length: {len(transcription)} characters")
-
-    # 1️⃣ Generate text-based interview analysis
-    prompt = f"""
-    You are an expert HR interview evaluator.
-    Analyze the following interview transcription and produce STRICT JSON with keys:
-    - key_strengths: array of objects: {{ "area": str, "example": str, "rating": int (1-5) }}
-    - areas_for_improvement: array of objects: {{ "area": str, "suggestions": str }}
-    - ratings: object: {{
-        "technical": int (1-5),
-        "communication": int (1-5),
-        "problem_solving": int (1-5),
-        "time_mgmt": int (1-5),
-        "total": int
-    }}
-    
-    CRITICAL: You MUST provide at least 2 key strengths and 2 areas for improvement.
-    Even if the interview is brief, identify positive aspects and growth areas.
-    Return ONLY compact JSON. No markdown, no prose.
-
-    Transcription:
-    {transcription}
-    """
-
-    try:
-        raw_json = generate_chat_completion(
-            prompt=prompt,
-            model="gpt-4o-mini",
-            max_tokens=1200,
-            temperature=0.2,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "interview_report",
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "key_strengths": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "area": {"type": "string"},
-                                        "example": {"type": "string"},
-                                        "rating": {"type": "integer"}
-                                    },
-                                    "required": ["area", "rating"]
-                                },
-                                "minItems": 1  # Ensure at least 1 item
-                            },
-                            "areas_for_improvement": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "area": {"type": "string"},
-                                        "suggestions": {"type": "string"}
-                                    },
-                                    "required": ["area"]
-                                },
-                                "minItems": 1
-                            },
-                            "ratings": {
-                                "type": "object",
-                                "properties": {
-                                    "technical": {"type": "integer"},
-                                    "communication": {"type": "integer"},
-                                    "problem_solving": {"type": "integer"},
-                                    "time_mgmt": {"type": "integer"},
-                                    "total": {"type": "integer"}
-                                },
-                                "required": ["technical","communication","problem_solving","time_mgmt","total"]
-                            }
-                        },
-                        "required": ["key_strengths", "areas_for_improvement", "ratings"],
-                        "additionalProperties": False
-                    }
-                }
-            }
-        )
         
-        data: Dict[str, Any] = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
-        
-        # Validate the response has meaningful data
-        key_strengths = data.get("key_strengths", [])
-        areas_for_improvement = data.get("areas_for_improvement", [])
-        ratings = data.get("ratings", {})
-        
-        # Check if GPT returned empty arrays
-        if not key_strengths or len(key_strengths) == 0:
-            print("WARNING: GPT returned empty key_strengths, generating fallback...")
-            key_strengths = [
-                {
-                    "area": "Communication",
-                    "example": "Candidate participated in the interview process",
-                    "rating": 3
-                },
-                {
-                    "area": "Engagement",
-                    "example": "Candidate responded to interview questions",
-                    "rating": 3
-                }
-            ]
-        
-        if not areas_for_improvement or len(areas_for_improvement) == 0:
-            print("WARNING: GPT returned empty areas_for_improvement, generating fallback...")
-            areas_for_improvement = [
-                {
-                    "area": "Response Depth",
-                    "suggestions": "Provide more detailed and elaborate answers to questions"
-                },
-                {
-                    "area": "Technical Clarity",
-                    "suggestions": "Use specific examples when discussing technical concepts"
-                }
-            ]
-        
-        if not ratings or not all(k in ratings for k in ["technical", "communication", "problem_solving", "time_mgmt"]):
-            print("WARNING: GPT returned incomplete ratings, generating fallback...")
-            ratings = {
-                "technical": 3,
-                "communication": 3,
-                "problem_solving": 3,
-                "time_mgmt": 3,
-                "total": 12
-            }
-        
-        # Ensure total is calculated
-        if "total" not in ratings or ratings["total"] == 0:
-            ratings["total"] = sum([
-                ratings.get("technical", 0),
-                ratings.get("communication", 0),
-                ratings.get("problem_solving", 0),
-                ratings.get("time_mgmt", 0)
-            ])
-        
-        print(f"Report data validated:")
-        print(f"  Key strengths: {len(key_strengths)}")
-        print(f"  Areas for improvement: {len(areas_for_improvement)}")
-        print(f"  Total rating: {ratings.get('total', 0)}")
-        
-    except Exception as exc:
-        import traceback
-        print(f"LLM analysis failed: {exc}")
-        print(traceback.format_exc())
-        raise RuntimeError(f"Failed to generate interview analysis: {exc}")
-
-    # 2️⃣ Get frames from Interview model
-    if frames is None:
-        frames = interview.visual_frames or []
-    
-    # Limit to 5 frames for cost efficiency
-    frames = frames[:5]
-
-    # Get candidate info
-    candidate_name = getattr(interview.student, "name", None) or \
-                     getattr(interview.student, "first_name", None) or \
-                     interview.student.username
-
-    # 3️⃣ Visual feedback analysis
-    visual_feedback = None
-
-    if frames and len(frames) > 0:
-        print(f"Analyzing {len(frames)} frames for {candidate_name}...")
-        
-        try:
-            from all_services.visual_feedback_service import (
-                analyze_frames_aggregated,
-                analyze_interview_metadata,
-                generate_fallback_feedback
-            )
-            
-            # Clean frames before analysis
-            cleaned_frames = []
-            for frame in frames:
-                frame = frame.strip().replace('\n', '').replace('\r', '').replace(' ', '')
-                if not frame.startswith('data:image'):
-                    frame = f"data:image/jpeg;base64,{frame.split('base64,')[-1]}"
-                cleaned_frames.append(frame)
-            
-            # Primary: GPT Vision analysis
-            visual_feedback = analyze_frames_aggregated(
-                frames_b64=cleaned_frames,
-                candidate_name=candidate_name,
-                candidate_id=interview.student_id
-            )
-            
-            # Check status
-            status = visual_feedback.get("status")
-            
-            if status == "success":
-                print(f"Visual analysis successful: {visual_feedback.get('frames_analyzed')} frames")
-            
-            elif status in ["error", "parse_error", "fallback"]:
-                print(f"Visual analysis had issues: {status}")
-                
-                # Try adding transcript analysis as supplement
-                try:
-                    print("Adding transcript-based analysis as supplement...")
-                    metadata_analysis = analyze_interview_metadata(
-                        transcription, 
-                        getattr(interview, 'duration_minutes', None)
-                    )
-                    visual_feedback["communication_analysis"] = metadata_analysis
-                    visual_feedback["analysis_type"] = "hybrid"
-                except Exception as meta_exc:
-                    print(f"Metadata supplement failed: {meta_exc}")
-                    
-                # If still no good data, use fallback
-                if not visual_feedback.get("professional_appearance"):
-                    visual_feedback = generate_fallback_feedback(
-                        candidate_name, 
-                        len(frames)
-                    )
-            
-        except Exception as vf_exc:
-            import traceback
-            print(f"Visual feedback exception: {vf_exc}")
-            print(traceback.format_exc())
-            
-            # Final fallback
-            try:
-                from all_services.visual_feedback_service import generate_fallback_feedback
-                visual_feedback = generate_fallback_feedback(candidate_name, len(frames))
-                visual_feedback["error_occurred"] = str(vf_exc)[:200]
-            except Exception:
-                visual_feedback = {
-                    "status": "critical_error",
-                    "message": "Visual feedback unavailable",
-                    "frames_captured": len(frames)
-                }
-    else:
-        print("No frames available for visual feedback")
-        visual_feedback = {
-            "status": "no_frames",
-            "message": "No video frames were captured during the interview",
-            "note": "Ensure camera permissions are granted and frames are being uploaded",
-            "candidate_name": candidate_name
-        }
-
-    # 4️⃣ Create the Report
-    report = Report.objects.create(
-        interview=interview,
-        key_strengths=key_strengths,
-        areas_for_improvement=areas_for_improvement,
-        ratings=ratings,
-        visual_feedback=visual_feedback,
-    )
-
-    # Update interview status
-    if interview.status != "completed":
-        interview.status = "completed"
-        interview.save(update_fields=["status"])
-
-    print(f"Report created successfully (ID: {report.id})")
-    print(f"Visual feedback type: {visual_feedback.get('analysis_type', 'unknown')}")
-    
-    return report
-
-
-# -----------------------------
 # Permissions
-# -----------------------------
+
 class IsAdminOrSuperAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
@@ -340,7 +45,6 @@ class IsAdminOrSuperAdmin(permissions.BasePermission):
             and request.user.is_authenticated
             and getattr(request.user, "role", None) in ("admin", "super_admin")
         )
-
 
 
 # jd parser
@@ -364,12 +68,8 @@ class ParseJDAPIView(APIView):
         return Response({"jd_text": jd_text}, status=status.HTTP_200_OK)
 
 
-
-
-
-# -----------------------------
 # Admin-only: Schedule Interview
-# -----------------------------
+
 class ScheduleInterviewAPIView(APIView):
     """
     Admin schedules an interview for a student.
@@ -431,11 +131,8 @@ class ScheduleInterviewAPIView(APIView):
         )
 
 
-
-
-# -----------------------------
 # Debounced student search (for autofill)
-# -----------------------------
+
 class SearchStudentAPIView(APIView):
     """
     GET /api/students/search/?q=<term>
@@ -462,9 +159,8 @@ class SearchStudentAPIView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-# -----------------------------
-# (Optional) Student detail for full autofill on selection
-# -----------------------------
+#  Student detail for full autofill on selection
+
 class StudentDetailAPIView(APIView):
     """
     GET /api/students/<id>/
@@ -484,6 +180,7 @@ class StudentDetailAPIView(APIView):
             "batch_no": student.batch_no,
         }
         return Response(data, status=status.HTTP_200_OK)
+    
 
 class ReportCreateView(generics.CreateAPIView):
     """
@@ -580,29 +277,6 @@ class CompleteInterviewAndGenerateReportAPIView(APIView):
             status=201 if created else 200
         )
 
-from .serializers import ReportListSerializer
-
-
-# class ReportListView(generics.ListAPIView):
-#     """
-#     Admin: all reports
-#     Student: only their reports
-#     """
-#     serializer_class = ReportListSerializer
-
-#     def get_queryset(self):
-#         user = self.request.user
-#         qs = Report.objects.select_related("interview", "interview__student")  # join with interview and student
-
-#         if not user.is_authenticated:
-#             return Report.objects.none()
-
-#         if getattr(user, "role", None) in ("admin", "super_admin"):
-#             return qs.order_by("-created_at")  # Admin sees all reports, ordered by created_at
-
-#         # Only return the reports that belong to the logged-in student
-#         return qs.filter(interview__student=user).order_by("-created_at")  # Student only sees their own reports
-
 
 class ReportListView(generics.ListAPIView):
     """
@@ -624,6 +298,7 @@ class ReportListView(generics.ListAPIView):
             return qs.order_by("-created_at")
 
         return qs.filter(interview__student=user).order_by("-created_at")
+    
 
 class ReportDetailView(generics.RetrieveAPIView):
     """
@@ -640,8 +315,6 @@ class ReportDetailView(generics.RetrieveAPIView):
         if not _can_view_or_own(request.user, report.interview):
             return Response({"error": "Forbidden"}, status=403)
         return Response(self.get_serializer(report).data, status=200)
-
-
 
 
 class ReportByInterviewView(generics.GenericAPIView):
@@ -691,8 +364,6 @@ class MyInterviewsListView(generics.ListAPIView):
         upcoming = qs.filter(scheduled_time__gte=now()).order_by("scheduled_time")
         past = qs.filter(scheduled_time__lt=now()).order_by("-scheduled_time")
         return upcoming.union(past)
-
-
 
 
 class InterviewAnalyticsAPIView(APIView):
@@ -769,14 +440,10 @@ class InterviewAnalyticsAPIView(APIView):
         return Response(data)
 
 
-
-
-#  student dashboard analytic report
 class StudentAnalyticsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, student_id):
-        # Ensure student exists
         try:
             student = User.objects.get(id=student_id, role='student')
         except User.DoesNotExist:
@@ -807,7 +474,6 @@ class StudentAnalyticsAPIView(APIView):
             report = getattr(interview, "report", None)
             if report and report.ratings:
                 r = report.ratings
-                # Assuming ratings keys: technical, communication, problem_solving, time_mgmt
                 technical = r.get('technical', 0)
                 communication = r.get('communication', 0)
                 problem_solving = r.get('problem_solving', 0)
@@ -844,8 +510,6 @@ class StudentAnalyticsAPIView(APIView):
             "skill_breakdown": skill_breakdown,
             "interview_ratings": ratings_list
         })
-
-
 
 
 class InterviewTableAPIView(ListAPIView):
@@ -901,7 +565,6 @@ class InterviewTableAPIView(ListAPIView):
         })
 
 
-
 class UploadFramesAPIView(APIView):
     """
     Upload video frames during interview for visual feedback analysis.
@@ -954,10 +617,6 @@ class UploadFramesAPIView(APIView):
             "frames_received": len(valid_images)
         }, status=status.HTTP_200_OK)
         
-    
-
-
-# excel file downlaod
 
 class InterviewExportExcelAPIView(APIView):
     """
@@ -981,9 +640,6 @@ class InterviewExportExcelAPIView(APIView):
         table_data = InterviewTableSerializer(queryset, many=True).data
         ratings_data = InterviewRatingsSerializer(queryset, many=True).data
         visual_data = VisualFeedbackSerializer(queryset, many=True).data
-
-        # Convert serialized JSON-like data to pandas DataFrames.
-        # If nested structures exist, you may want to normalize them (see notes below).
         df_table = pd.DataFrame(table_data)
         df_ratings = pd.DataFrame(ratings_data)
         df_visual = pd.DataFrame(visual_data)

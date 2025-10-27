@@ -5,7 +5,6 @@ from authentication.models import *
 from .models import User
 
 
-
 class UserRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
 
@@ -49,12 +48,10 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         return user
 
 
-
 class UserLoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
     role = serializers.ChoiceField(choices=User.ROLE_CHOICES)
-
 
 
 class ForgotPasswordSerializer(serializers.Serializer):
