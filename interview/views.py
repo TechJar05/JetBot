@@ -396,7 +396,7 @@ def _create_report_for_interview(
                 model="gpt-4o-mini",
                 max_tokens=1500,
                 temperature=0.3,
-                response_format={"type": "json"}
+                response_format={"type": "json_object"}
             )
             return json.loads(result) if isinstance(result, str) else result
         except Exception as e:
@@ -461,7 +461,7 @@ def _create_report_for_interview(
             model="gpt-4o-mini",
             max_tokens=1500,
             temperature=0.3,
-            response_format={"type": "json"}
+            response_format={"type": "json_object"}
         )
 
         data = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
@@ -568,6 +568,10 @@ def _create_report_for_interview(
 
     print(f"🏁 Report created successfully (ID: {report.id})")
     return report
+
+
+
+
 
 # -----------------------------
 # Permissions
