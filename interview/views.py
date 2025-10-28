@@ -54,17 +54,58 @@ class IsStudent(permissions.BasePermission):
 # ) -> Report:
 #     """
 #     Create comprehensive interview report with GPT Vision-based visual feedback.
-#     Includes validation to prevent empty reports.
+#     Includes preprocessing to remove repeated questions, meaningless answers,
+#     and heuristic correction for low-quality transcripts.
 #     """
-#     # Return existing report if already created (idempotent)
-#     try:
-#         return interview.report
-#     except Report.DoesNotExist:
-#         pass
+#     import re, json
+#     from difflib import SequenceMatcher
 
+#     # --- Helper: Clean and merge repeated or duplicate questions ---
+#     def preprocess_transcript(transcription: str) -> str:
+#         """Removes repeated questions, trivial answers, and question repetition."""
+#         if not transcription:
+#             return transcription
+
+#         qa_pairs = re.findall(r"(Q\d+:\s*.*?)(?=Q\d+:|$)", transcription, flags=re.DOTALL)
+#         cleaned_pairs = []
+#         seen_questions = set()
+
+#         for block in qa_pairs:
+#             q_match = re.search(r"(Q\d+:\s*)(.*?)(A\d+:)", block, flags=re.DOTALL)
+#             a_match = re.search(r"(A\d+:\s*)(.*)", block.split("A", 1)[-1], flags=re.DOTALL)
+
+#             if not q_match or not a_match:
+#                 continue
+
+#             question = q_match.group(2).strip()
+#             answer = a_match.group(2).strip()
+
+#             # Skip short answers (<3 words)
+#             if len(answer.split()) < 3:
+#                 continue
+
+#             # Skip if answer simply repeats question
+#             if SequenceMatcher(None, question.lower(), answer.lower()).ratio() > 0.7:
+#                 continue
+
+#             # Skip if question is a duplicate (similar >80%)
+#             is_duplicate = any(
+#                 SequenceMatcher(None, question.lower(), prev.lower()).ratio() > 0.8
+#                 for prev in seen_questions
+#             )
+#             if is_duplicate:
+#                 continue
+
+#             seen_questions.add(question)
+#             cleaned_pairs.append(f"Q: {question}\nA: {answer}")
+
+#         return "\n\n".join(cleaned_pairs) if cleaned_pairs else transcription
+
+#     # -----------------------------------------------------------------
+#     # STEP 1: Preprocess transcript
 #     transcription = (interview.full_transcript or "").strip()
-    
-#     # Validation: Ensure transcript has meaningful content
+#     transcription = preprocess_transcript(transcription)
+
 #     if not transcription or len(transcription) < 50:
 #         raise ValueError(
 #             f"Interview transcription is too short ({len(transcription)} chars). "
@@ -72,11 +113,16 @@ class IsStudent(permissions.BasePermission):
 #         )
 
 #     print(f"Generating report for interview {interview.id}")
-#     print(f"Transcript length: {len(transcription)} characters")
+#     print(f"Transcript length (cleaned): {len(transcription)} characters")
 
-#     # 1️⃣ Generate text-based interview analysis
+#     # -----------------------------------------------------------------
+#     # STEP 2: GPT-based text analysis
 #     prompt = f"""
 #     You are an expert HR interview evaluator.
+#     If the transcript contains repeated or nonsensical answers, short phrases, or
+#     the candidate simply repeats questions, you must give low ratings (1–2 out of 5)
+#     and mention "lack of meaningful responses" in areas_for_improvement.
+
 #     Analyze the following interview transcription and produce STRICT JSON with keys:
 #     - key_strengths: array of objects: {{ "area": str, "example": str, "rating": int (1-5) }}
 #     - areas_for_improvement: array of objects: {{ "area": str, "suggestions": str }}
@@ -87,10 +133,8 @@ class IsStudent(permissions.BasePermission):
 #         "time_mgmt": int (1-5),
 #         "total": int
 #     }}
-    
-#     CRITICAL: You MUST provide at least 2 key strengths and 2 areas for improvement.
-#     Even if the interview is brief, identify positive aspects and growth areas.
-#     Return ONLY compact JSON. No markdown, no prose.
+#     CRITICAL: Provide at least 2 key_strengths and 2 areas_for_improvement.
+#     Return ONLY compact JSON. No markdown or prose.
 
 #     Transcription:
 #     {transcription}
@@ -120,7 +164,7 @@ class IsStudent(permissions.BasePermission):
 #                                     },
 #                                     "required": ["area", "rating"]
 #                                 },
-#                                 "minItems": 1  # Ensure at least 1 item
+#                                 "minItems": 1
 #                             },
 #                             "areas_for_improvement": {
 #                                 "type": "array",
@@ -152,54 +196,26 @@ class IsStudent(permissions.BasePermission):
 #                 }
 #             }
 #         )
-        
+
 #         data: Dict[str, Any] = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
-        
-#         # Validate the response has meaningful data
 #         key_strengths = data.get("key_strengths", [])
 #         areas_for_improvement = data.get("areas_for_improvement", [])
 #         ratings = data.get("ratings", {})
-        
-#         # Check if GPT returned empty arrays
-#         if not key_strengths or len(key_strengths) == 0:
-#             print("WARNING: GPT returned empty key_strengths, generating fallback...")
+
+#         # Fallbacks if GPT output incomplete
+#         if not key_strengths:
 #             key_strengths = [
-#                 {
-#                     "area": "Communication",
-#                     "example": "Candidate participated in the interview process",
-#                     "rating": 3
-#                 },
-#                 {
-#                     "area": "Engagement",
-#                     "example": "Candidate responded to interview questions",
-#                     "rating": 3
-#                 }
+#                 {"area": "Communication", "example": "Participated in interview", "rating": 3},
+#                 {"area": "Engagement", "example": "Responded to questions", "rating": 3}
 #             ]
-        
-#         if not areas_for_improvement or len(areas_for_improvement) == 0:
-#             print("WARNING: GPT returned empty areas_for_improvement, generating fallback...")
+#         if not areas_for_improvement:
 #             areas_for_improvement = [
-#                 {
-#                     "area": "Response Depth",
-#                     "suggestions": "Provide more detailed and elaborate answers to questions"
-#                 },
-#                 {
-#                     "area": "Technical Clarity",
-#                     "suggestions": "Use specific examples when discussing technical concepts"
-#                 }
+#                 {"area": "Response Depth", "suggestions": "Provide more detailed answers"},
+#                 {"area": "Technical Clarity", "suggestions": "Use concrete examples"}
 #             ]
-        
 #         if not ratings or not all(k in ratings for k in ["technical", "communication", "problem_solving", "time_mgmt"]):
-#             print("WARNING: GPT returned incomplete ratings, generating fallback...")
-#             ratings = {
-#                 "technical": 3,
-#                 "communication": 3,
-#                 "problem_solving": 3,
-#                 "time_mgmt": 3,
-#                 "total": 12
-#             }
-        
-#         # Ensure total is calculated
+#             ratings = {"technical": 3, "communication": 3, "problem_solving": 3, "time_mgmt": 3, "total": 12}
+
 #         if "total" not in ratings or ratings["total"] == 0:
 #             ratings["total"] = sum([
 #                 ratings.get("technical", 0),
@@ -207,112 +223,87 @@ class IsStudent(permissions.BasePermission):
 #                 ratings.get("problem_solving", 0),
 #                 ratings.get("time_mgmt", 0)
 #             ])
-        
-#         print(f"Report data validated:")
-#         print(f"  Key strengths: {len(key_strengths)}")
-#         print(f"  Areas for improvement: {len(areas_for_improvement)}")
-#         print(f"  Total rating: {ratings.get('total', 0)}")
-        
+
+#         # -----------------------------------------------------------------
+#         # STEP 3: Heuristic adjustment for repetition / poor answers
+#         qa_count = transcription.count("Q:")
+#         unique_qs = len(set(re.findall(r"Q:\s*(.*)", transcription)))
+#         repetition_ratio = 1 - (unique_qs / qa_count) if qa_count > 0 else 0
+#         avg_answer_len = sum(len(a.split()) for a in re.findall(r"A:\s*(.*)", transcription)) / max(1, qa_count)
+
+#         if repetition_ratio > 0.5 or avg_answer_len < 5:
+#             print(f"⚠️ Transcript is low quality (repetition_ratio={repetition_ratio:.2f}, avg_len={avg_answer_len:.1f})")
+#             for key in ["technical", "communication", "problem_solving", "time_mgmt"]:
+#                 ratings[key] = min(ratings.get(key, 2), 2)
+#             ratings["total"] = sum(ratings[k] for k in ["technical", "communication", "problem_solving", "time_mgmt"])
+
+#         print(f"Validated ratings: {ratings}")
+#         print(f"Key strengths: {len(key_strengths)}, Areas for improvement: {len(areas_for_improvement)}")
+
 #     except Exception as exc:
 #         import traceback
 #         print(f"LLM analysis failed: {exc}")
 #         print(traceback.format_exc())
 #         raise RuntimeError(f"Failed to generate interview analysis: {exc}")
 
-#     # 2️⃣ Get frames from Interview model
+#     # -----------------------------------------------------------------
+#     # STEP 4: Visual feedback handling
 #     if frames is None:
 #         frames = interview.visual_frames or []
-    
-#     # Limit to 5 frames for cost efficiency
 #     frames = frames[:5]
 
-#     # Get candidate info
 #     candidate_name = getattr(interview.student, "name", None) or \
 #                      getattr(interview.student, "first_name", None) or \
 #                      interview.student.username
 
-#     # 3️⃣ Visual feedback analysis
 #     visual_feedback = None
-
-#     if frames and len(frames) > 0:
-#         print(f"Analyzing {len(frames)} frames for {candidate_name}...")
-        
+#     if frames:
 #         try:
 #             from all_services.visual_feedback_service import (
 #                 analyze_frames_aggregated,
 #                 analyze_interview_metadata,
 #                 generate_fallback_feedback
 #             )
-            
-#             # Clean frames before analysis
+
 #             cleaned_frames = []
 #             for frame in frames:
 #                 frame = frame.strip().replace('\n', '').replace('\r', '').replace(' ', '')
 #                 if not frame.startswith('data:image'):
 #                     frame = f"data:image/jpeg;base64,{frame.split('base64,')[-1]}"
 #                 cleaned_frames.append(frame)
-            
-#             # Primary: GPT Vision analysis
+
 #             visual_feedback = analyze_frames_aggregated(
 #                 frames_b64=cleaned_frames,
 #                 candidate_name=candidate_name,
 #                 candidate_id=interview.student_id
 #             )
-            
-#             # Check status
-#             status = visual_feedback.get("status")
-            
-#             if status == "success":
-#                 print(f"Visual analysis successful: {visual_feedback.get('frames_analyzed')} frames")
-            
-#             elif status in ["error", "parse_error", "fallback"]:
-#                 print(f"Visual analysis had issues: {status}")
-                
-#                 # Try adding transcript analysis as supplement
+
+#             if visual_feedback.get("status") != "success":
 #                 try:
-#                     print("Adding transcript-based analysis as supplement...")
-#                     metadata_analysis = analyze_interview_metadata(
-#                         transcription, 
-#                         getattr(interview, 'duration_minutes', None)
-#                     )
-#                     visual_feedback["communication_analysis"] = metadata_analysis
+#                     metadata = analyze_interview_metadata(transcription, getattr(interview, 'duration_minutes', None))
+#                     visual_feedback["communication_analysis"] = metadata
 #                     visual_feedback["analysis_type"] = "hybrid"
 #                 except Exception as meta_exc:
 #                     print(f"Metadata supplement failed: {meta_exc}")
-                    
-#                 # If still no good data, use fallback
 #                 if not visual_feedback.get("professional_appearance"):
-#                     visual_feedback = generate_fallback_feedback(
-#                         candidate_name, 
-#                         len(frames)
-#                     )
-            
+#                     visual_feedback = generate_fallback_feedback(candidate_name, len(frames))
+
 #         except Exception as vf_exc:
 #             import traceback
 #             print(f"Visual feedback exception: {vf_exc}")
 #             print(traceback.format_exc())
-            
-#             # Final fallback
-#             try:
-#                 from all_services.visual_feedback_service import generate_fallback_feedback
-#                 visual_feedback = generate_fallback_feedback(candidate_name, len(frames))
-#                 visual_feedback["error_occurred"] = str(vf_exc)[:200]
-#             except Exception:
-#                 visual_feedback = {
-#                     "status": "critical_error",
-#                     "message": "Visual feedback unavailable",
-#                     "frames_captured": len(frames)
-#                 }
+#             from all_services.visual_feedback_service import generate_fallback_feedback
+#             visual_feedback = generate_fallback_feedback(candidate_name, len(frames))
+#             visual_feedback["error_occurred"] = str(vf_exc)[:200]
 #     else:
-#         print("No frames available for visual feedback")
 #         visual_feedback = {
 #             "status": "no_frames",
 #             "message": "No video frames were captured during the interview",
-#             "note": "Ensure camera permissions are granted and frames are being uploaded",
 #             "candidate_name": candidate_name
 #         }
 
-#     # 4️⃣ Create the Report
+#     # -----------------------------------------------------------------
+#     # STEP 5: Create Report
 #     report = Report.objects.create(
 #         interview=interview,
 #         key_strengths=key_strengths,
@@ -321,63 +312,51 @@ class IsStudent(permissions.BasePermission):
 #         visual_feedback=visual_feedback,
 #     )
 
-#     # Update interview status
 #     if interview.status != "completed":
 #         interview.status = "completed"
 #         interview.save(update_fields=["status"])
 
-#     print(f"Report created successfully (ID: {report.id})")
+#     print(f"✅ Report created successfully (ID: {report.id})")
 #     print(f"Visual feedback type: {visual_feedback.get('analysis_type', 'unknown')}")
-    
 #     return report
-
 
 def _create_report_for_interview(
     interview: Interview,
     frames: Optional[List[str]] = None,
 ) -> Report:
     """
-    Create comprehensive interview report with GPT Vision-based visual feedback.
-    Includes preprocessing to remove repeated questions, meaningless answers,
-    and heuristic correction for low-quality transcripts.
+    Create a comprehensive interview report with GPT Vision-based visual feedback
+    and answer-quality-based scoring.
     """
+
     import re, json
     from difflib import SequenceMatcher
 
-    # --- Helper: Clean and merge repeated or duplicate questions ---
+    # -----------------------------------------------------------------
+    # Helper: Clean and merge repeated or duplicate questions
     def preprocess_transcript(transcription: str) -> str:
-        """Removes repeated questions, trivial answers, and question repetition."""
+        """Remove repeated questions, trivial or meaningless answers."""
         if not transcription:
             return transcription
 
         qa_pairs = re.findall(r"(Q\d+:\s*.*?)(?=Q\d+:|$)", transcription, flags=re.DOTALL)
-        cleaned_pairs = []
-        seen_questions = set()
+        cleaned_pairs, seen_questions = [], set()
 
         for block in qa_pairs:
             q_match = re.search(r"(Q\d+:\s*)(.*?)(A\d+:)", block, flags=re.DOTALL)
             a_match = re.search(r"(A\d+:\s*)(.*)", block.split("A", 1)[-1], flags=re.DOTALL)
-
             if not q_match or not a_match:
                 continue
 
             question = q_match.group(2).strip()
             answer = a_match.group(2).strip()
 
-            # Skip short answers (<3 words)
             if len(answer.split()) < 3:
                 continue
-
-            # Skip if answer simply repeats question
             if SequenceMatcher(None, question.lower(), answer.lower()).ratio() > 0.7:
                 continue
 
-            # Skip if question is a duplicate (similar >80%)
-            is_duplicate = any(
-                SequenceMatcher(None, question.lower(), prev.lower()).ratio() > 0.8
-                for prev in seen_questions
-            )
-            if is_duplicate:
+            if any(SequenceMatcher(None, question.lower(), prev.lower()).ratio() > 0.8 for prev in seen_questions):
                 continue
 
             seen_questions.add(question)
@@ -389,166 +368,157 @@ def _create_report_for_interview(
     # STEP 1: Preprocess transcript
     transcription = (interview.full_transcript or "").strip()
     transcription = preprocess_transcript(transcription)
-
     if not transcription or len(transcription) < 50:
-        raise ValueError(
-            f"Interview transcription is too short ({len(transcription)} chars). "
-            "Minimum 50 characters required for analysis."
-        )
+        raise ValueError(f"Transcript too short ({len(transcription)} chars). Min 50 required.")
 
-    print(f"Generating report for interview {interview.id}")
-    print(f"Transcript length (cleaned): {len(transcription)} characters")
+    print(f"🧩 Generating report for interview {interview.id} (clean length: {len(transcription)})")
 
     # -----------------------------------------------------------------
-    # STEP 2: GPT-based text analysis
-    prompt = f"""
-    You are an expert HR interview evaluator.
-    If the transcript contains repeated or nonsensical answers, short phrases, or
-    the candidate simply repeats questions, you must give low ratings (1–2 out of 5)
-    and mention "lack of meaningful responses" in areas_for_improvement.
+    # STEP 2: Generate expected answers
+    def generate_expected_answers(transcription: str):
+        """Generate ideal answers per question."""
+        from app.ai_utils import generate_chat_completion
+        qa_pairs = re.findall(r"Q:\s*(.*?)\nA:\s*(.*?)(?=Q:|$)", transcription, flags=re.DOTALL)
+        prompt = f"""
+        You are a senior HR + technical interviewer.
+        For each question, write the ideal or expected answer briefly.
+        Return STRICT JSON array like:
+        [
+          {{ "question": "...", "expected_answer": "..." }}
+        ]
 
-    Analyze the following interview transcription and produce STRICT JSON with keys:
-    - key_strengths: array of objects: {{ "area": str, "example": str, "rating": int (1-5) }}
-    - areas_for_improvement: array of objects: {{ "area": str, "suggestions": str }}
-    - ratings: object: {{
-        "technical": int (1-5),
-        "communication": int (1-5),
-        "problem_solving": int (1-5),
-        "time_mgmt": int (1-5),
-        "total": int
+        Questions:
+        {json.dumps([q for q, _ in qa_pairs], indent=2)}
+        """
+        try:
+            result = generate_chat_completion(
+                prompt=prompt,
+                model="gpt-4o-mini",
+                max_tokens=1500,
+                temperature=0.3,
+                response_format={"type": "json"}
+            )
+            return json.loads(result) if isinstance(result, str) else result
+        except Exception as e:
+            print(f"⚠️ Expected answer gen failed: {e}")
+            return []
+
+    expected_data = generate_expected_answers(transcription)
+
+    # -----------------------------------------------------------------
+    # STEP 3: Prepare structured input for evaluation
+    qa_with_expected = []
+    for q, a in re.findall(r"Q:\s*(.*?)\nA:\s*(.*?)(?=Q:|$)", transcription, flags=re.DOTALL):
+        expected = next(
+            (item["expected_answer"] for item in expected_data if item["question"].strip().lower() in q.lower()),
+            "N/A"
+        )
+        qa_with_expected.append({
+            "question": q.strip(),
+            "user_answer": a.strip(),
+            "expected_answer": expected
+        })
+
+    # -----------------------------------------------------------------
+    # STEP 4: GPT-based strict evaluation
+    from app.ai_utils import generate_chat_completion
+
+    eval_prompt = f"""
+    You are an expert interviewer and evaluator.
+
+    Evaluate each question-answer pair by comparing the user's answer with the expected (ideal) one.
+    Be STRICT in scoring:
+    - Excellent (clear, relevant, matches expected): 5
+    - Good (partially relevant): 3–4
+    - Poor (vague, off-topic, repetitive): 1–2
+
+    Produce STRICT JSON:
+    {{
+      "key_strengths": [{{"area": str, "example": str, "rating": int}}],
+      "areas_for_improvement": [{{"area": str, "suggestions": str}}],
+      "detailed_evaluation": [
+        {{
+          "question": str,
+          "user_answer": str,
+          "expected_answer": str,
+          "match_score": int,
+          "feedback": str
+        }}
+      ],
+      "ratings": {{
+        "technical": int, "communication": int,
+        "problem_solving": int, "time_mgmt": int, "total": int
+      }}
     }}
-    CRITICAL: Provide at least 2 key_strengths and 2 areas_for_improvement.
-    Return ONLY compact JSON. No markdown or prose.
 
-    Transcription:
-    {transcription}
+    Q/A Data:
+    {json.dumps(qa_with_expected, indent=2)}
     """
 
     try:
         raw_json = generate_chat_completion(
-            prompt=prompt,
+            prompt=eval_prompt,
             model="gpt-4o-mini",
-            max_tokens=1200,
-            temperature=0.2,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "interview_report",
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "key_strengths": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "area": {"type": "string"},
-                                        "example": {"type": "string"},
-                                        "rating": {"type": "integer"}
-                                    },
-                                    "required": ["area", "rating"]
-                                },
-                                "minItems": 1
-                            },
-                            "areas_for_improvement": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "area": {"type": "string"},
-                                        "suggestions": {"type": "string"}
-                                    },
-                                    "required": ["area"]
-                                },
-                                "minItems": 1
-                            },
-                            "ratings": {
-                                "type": "object",
-                                "properties": {
-                                    "technical": {"type": "integer"},
-                                    "communication": {"type": "integer"},
-                                    "problem_solving": {"type": "integer"},
-                                    "time_mgmt": {"type": "integer"},
-                                    "total": {"type": "integer"}
-                                },
-                                "required": ["technical","communication","problem_solving","time_mgmt","total"]
-                            }
-                        },
-                        "required": ["key_strengths", "areas_for_improvement", "ratings"],
-                        "additionalProperties": False
-                    }
-                }
-            }
+            max_tokens=1500,
+            temperature=0.3,
+            response_format={"type": "json"}
         )
 
-        data: Dict[str, Any] = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
-        key_strengths = data.get("key_strengths", [])
-        areas_for_improvement = data.get("areas_for_improvement", [])
-        ratings = data.get("ratings", {})
-
-        # Fallbacks if GPT output incomplete
-        if not key_strengths:
-            key_strengths = [
-                {"area": "Communication", "example": "Participated in interview", "rating": 3},
-                {"area": "Engagement", "example": "Responded to questions", "rating": 3}
-            ]
-        if not areas_for_improvement:
-            areas_for_improvement = [
-                {"area": "Response Depth", "suggestions": "Provide more detailed answers"},
-                {"area": "Technical Clarity", "suggestions": "Use concrete examples"}
-            ]
-        if not ratings or not all(k in ratings for k in ["technical", "communication", "problem_solving", "time_mgmt"]):
-            ratings = {"technical": 3, "communication": 3, "problem_solving": 3, "time_mgmt": 3, "total": 12}
-
-        if "total" not in ratings or ratings["total"] == 0:
-            ratings["total"] = sum([
-                ratings.get("technical", 0),
-                ratings.get("communication", 0),
-                ratings.get("problem_solving", 0),
-                ratings.get("time_mgmt", 0)
-            ])
-
-        # -----------------------------------------------------------------
-        # STEP 3: Heuristic adjustment for repetition / poor answers
-        qa_count = transcription.count("Q:")
-        unique_qs = len(set(re.findall(r"Q:\s*(.*)", transcription)))
-        repetition_ratio = 1 - (unique_qs / qa_count) if qa_count > 0 else 0
-        avg_answer_len = sum(len(a.split()) for a in re.findall(r"A:\s*(.*)", transcription)) / max(1, qa_count)
-
-        if repetition_ratio > 0.5 or avg_answer_len < 5:
-            print(f"⚠️ Transcript is low quality (repetition_ratio={repetition_ratio:.2f}, avg_len={avg_answer_len:.1f})")
-            for key in ["technical", "communication", "problem_solving", "time_mgmt"]:
-                ratings[key] = min(ratings.get(key, 2), 2)
-            ratings["total"] = sum(ratings[k] for k in ["technical", "communication", "problem_solving", "time_mgmt"])
-
-        print(f"Validated ratings: {ratings}")
-        print(f"Key strengths: {len(key_strengths)}, Areas for improvement: {len(areas_for_improvement)}")
+        data = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
 
     except Exception as exc:
         import traceback
-        print(f"LLM analysis failed: {exc}")
+        print(f"❌ LLM analysis failed: {exc}")
         print(traceback.format_exc())
         raise RuntimeError(f"Failed to generate interview analysis: {exc}")
 
     # -----------------------------------------------------------------
-    # STEP 4: Visual feedback handling
+    # STEP 5: Validate & fallback
+    key_strengths = data.get("key_strengths", [])
+    areas_for_improvement = data.get("areas_for_improvement", [])
+    detailed_eval = data.get("detailed_evaluation", qa_with_expected)
+    ratings = data.get("ratings", {})
+
+    if not key_strengths:
+        key_strengths = [{"area": "Participation", "example": "Responded to questions", "rating": 3}]
+    if not areas_for_improvement:
+        areas_for_improvement = [{"area": "Detail", "suggestions": "Provide more in-depth examples"}]
+
+    # If GPT missed any rating, compute average from match scores
+    if not ratings or "total" not in ratings:
+        avg_score = sum(item.get("match_score", 3) for item in detailed_eval) / max(1, len(detailed_eval))
+        base = int(round(avg_score))
+        ratings = {
+            "technical": base,
+            "communication": base,
+            "problem_solving": base,
+            "time_mgmt": base,
+            "total": base * 4
+        }
+
+    print(f"✅ Ratings: {ratings}")
+    print(f"📊 Evaluations: {len(detailed_eval)} pairs")
+
+    # -----------------------------------------------------------------
+    # STEP 6: Visual feedback (existing logic)
     if frames is None:
         frames = interview.visual_frames or []
     frames = frames[:5]
 
-    candidate_name = getattr(interview.student, "name", None) or \
-                     getattr(interview.student, "first_name", None) or \
-                     interview.student.username
+    candidate_name = (
+        getattr(interview.student, "name", None)
+        or getattr(interview.student, "first_name", None)
+        or interview.student.username
+    )
 
-    visual_feedback = None
-    if frames:
-        try:
-            from all_services.visual_feedback_service import (
-                analyze_frames_aggregated,
-                analyze_interview_metadata,
-                generate_fallback_feedback
-            )
+    from all_services.visual_feedback_service import (
+        analyze_frames_aggregated,
+        analyze_interview_metadata,
+        generate_fallback_feedback
+    )
 
+    try:
+        if frames:
             cleaned_frames = []
             for frame in frames:
                 frame = frame.strip().replace('\n', '').replace('\r', '').replace(' ', '')
@@ -563,47 +533,41 @@ def _create_report_for_interview(
             )
 
             if visual_feedback.get("status") != "success":
-                try:
-                    metadata = analyze_interview_metadata(transcription, getattr(interview, 'duration_minutes', None))
-                    visual_feedback["communication_analysis"] = metadata
-                    visual_feedback["analysis_type"] = "hybrid"
-                except Exception as meta_exc:
-                    print(f"Metadata supplement failed: {meta_exc}")
-                if not visual_feedback.get("professional_appearance"):
-                    visual_feedback = generate_fallback_feedback(candidate_name, len(frames))
+                metadata = analyze_interview_metadata(transcription, getattr(interview, 'duration_minutes', None))
+                visual_feedback["communication_analysis"] = metadata
+                visual_feedback["analysis_type"] = "hybrid"
 
-        except Exception as vf_exc:
-            import traceback
-            print(f"Visual feedback exception: {vf_exc}")
-            print(traceback.format_exc())
-            from all_services.visual_feedback_service import generate_fallback_feedback
-            visual_feedback = generate_fallback_feedback(candidate_name, len(frames))
-            visual_feedback["error_occurred"] = str(vf_exc)[:200]
-    else:
-        visual_feedback = {
-            "status": "no_frames",
-            "message": "No video frames were captured during the interview",
-            "candidate_name": candidate_name
-        }
+        else:
+            visual_feedback = {
+                "status": "no_frames",
+                "message": "No video frames were captured during the interview",
+                "candidate_name": candidate_name
+            }
+
+    except Exception as vf_exc:
+        import traceback
+        print("⚠️ Visual feedback failed:", vf_exc)
+        print(traceback.format_exc())
+        visual_feedback = generate_fallback_feedback(candidate_name, len(frames))
+        visual_feedback["error_occurred"] = str(vf_exc)[:200]
 
     # -----------------------------------------------------------------
-    # STEP 5: Create Report
+    # STEP 7: Save final report
     report = Report.objects.create(
         interview=interview,
         key_strengths=key_strengths,
         areas_for_improvement=areas_for_improvement,
         ratings=ratings,
         visual_feedback=visual_feedback,
+        detailed_evaluation=detailed_eval  # ✅ new field
     )
 
     if interview.status != "completed":
         interview.status = "completed"
         interview.save(update_fields=["status"])
 
-    print(f"✅ Report created successfully (ID: {report.id})")
-    print(f"Visual feedback type: {visual_feedback.get('analysis_type', 'unknown')}")
+    print(f"🏁 Report created successfully (ID: {report.id})")
     return report
-
 
 # -----------------------------
 # Permissions

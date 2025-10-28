@@ -104,7 +104,7 @@ class Report(models.Model):
     areas_for_improvement = models.JSONField(null=True, blank=True)  # [{"area": "Comm", "suggestions": "..."}]
     visual_feedback = models.JSONField(null=True, blank=True)  # [{"appearance": "Formal", "eye_contact": "Good"}]
     ratings = models.JSONField(null=True, blank=True)  # {"technical":4,"communication":3,"problem_solving":4,"time_mgmt":3,"total":14}
- 
+    detailed_evaluation = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
  
     def __str__(self):
