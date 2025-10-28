@@ -423,37 +423,48 @@ def _create_report_for_interview(
     # STEP 4: GPT-based strict evaluation
   
 
-    eval_prompt = f"""
-    You are an expert interviewer and evaluator.
+        eval_prompt = f"""
+    You are an experienced HR + Technical interviewer.
 
-    Evaluate each question-answer pair by comparing the user's answer with the expected (ideal) one.
-    Be STRICT in scoring:
+    Evaluate the following list of Q/A pairs by comparing the user's answer with the expected (ideal) answer.
+    Be **strict but fair**.
+
+    Scoring Guide:
     - Excellent (clear, relevant, matches expected): 5
-    - Good (partially relevant): 3–4
-    - Poor (vague, off-topic, repetitive): 1–2
+    - Good (partially correct, missing detail): 3–4
+    - Poor (vague, incorrect, off-topic): 1–2
 
-    Produce STRICT JSON:
+    Return **only valid JSON**, no extra text or commentary.
+    Structure your response exactly like this:
     {{
-      "key_strengths": [{{"area": str, "example": str, "rating": int}}],
-      "areas_for_improvement": [{{"area": str, "suggestions": str}}],
+      "key_strengths": [
+        {{"area": "string", "example": "string", "rating": 1-5}}
+      ],
+      "areas_for_improvement": [
+        {{"area": "string", "suggestions": "string"}}
+      ],
       "detailed_evaluation": [
         {{
-          "question": str,
-          "user_answer": str,
-          "expected_answer": str,
-          "match_score": int,
-          "feedback": str
+          "question": "string",
+          "user_answer": "string",
+          "expected_answer": "string",
+          "match_score": 1-5,
+          "feedback": "short specific feedback"
         }}
       ],
       "ratings": {{
-        "technical": int, "communication": int,
-        "problem_solving": int, "time_mgmt": int, "total": int
+        "technical": int,
+        "communication": int,
+        "problem_solving": int,
+        "time_mgmt": int,
+        "total": int
       }}
     }}
 
-    Q/A Data:
-    {json.dumps(qa_with_expected, indent=2)}
+    Analyze this data:
+    {json.dumps(qa_with_expected, ensure_ascii=False, indent=2)}
     """
+
 
     try:
         raw_json = generate_chat_completion(
