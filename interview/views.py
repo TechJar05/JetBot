@@ -377,7 +377,7 @@ def _create_report_for_interview(
     # STEP 2: Generate expected answers
     def generate_expected_answers(transcription: str):
         """Generate ideal answers per question."""
-        from app.ai_utils import generate_chat_completion
+   
         qa_pairs = re.findall(r"Q:\s*(.*?)\nA:\s*(.*?)(?=Q:|$)", transcription, flags=re.DOTALL)
         prompt = f"""
         You are a senior HR + technical interviewer.
@@ -421,7 +421,7 @@ def _create_report_for_interview(
 
     # -----------------------------------------------------------------
     # STEP 4: GPT-based strict evaluation
-    from app.ai_utils import generate_chat_completion
+  
 
     eval_prompt = f"""
     You are an expert interviewer and evaluator.
