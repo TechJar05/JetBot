@@ -74,25 +74,33 @@ def _create_report_for_interview(
 
     # 1️⃣ Generate text-based interview analysis
     prompt = f"""
-    You are an expert HR interview evaluator.
-    Analyze the following interview transcription and produce STRICT JSON with keys:
-    - key_strengths: array of objects: {{ "area": str, "example": str, "rating": int (1-5) }}
-    - areas_for_improvement: array of objects: {{ "area": str, "suggestions": str }}
-    - ratings: object: {{
-        "technical": int (1-5),
-        "communication": int (1-5),
-        "problem_solving": int (1-5),
-        "time_mgmt": int (1-5),
-        "total": int
-    }}
-    
-    CRITICAL: You MUST provide at least 2 key strengths and 2 areas for improvement.
-    Even if the interview is brief, identify positive aspects and growth areas.
-    Return ONLY compact JSON. No markdown, no prose.
+You are an expert HR interview evaluator.
+Analyze the following interview transcription and produce STRICT JSON with keys:
+- key_strengths: array of objects: {{ "area": str, "example": str, "rating": int (1-5) }}
+- areas_for_improvement: array of objects: {{ "area": str, "suggestions": str }}
+- ratings: object: {{
+    "technical": int (1-5),
+    "communication": int (1-5),
+    "problem_solving": int (1-5),
+    "time_mgmt": int (1-5),
+    "total": int
+}}
 
-    Transcription:
-    {transcription}
-    """
+🧠 Evaluation Rules:
+1. If the candidate repeats the question instead of answering it → rate all relevant areas **1 or 1.5**.
+2. If most answers are just restatements or incomplete fragments → mark communication and problem-solving low (1 or 2).
+3. If only greetings or unrelated phrases appear (e.g., "Hello", "Find out") → assign minimal total (≤ 6/20).
+4. If there are no clear technical examples → technical rating must be ≤ 2.
+5. Reward only clear, original, and context-relevant responses.
+
+💡 Important:
+- Be strict and realistic. A transcript that only repeats the question should NOT get average scores.
+- Still mention 2 strengths and 2 improvement areas, even if weak (e.g., "Attempted to respond", "Needs to provide original answers").
+- Return ONLY compact JSON. No markdown, no prose.
+
+Transcription:
+{transcription}
+"""
 
     try:
         raw_json = generate_chat_completion(
