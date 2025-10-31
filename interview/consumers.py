@@ -28,12 +28,48 @@ def get_interview(interview_id, user):
         return None
 
 
+import re
+
 @database_sync_to_async
 def save_full_transcript(interview, transcripts):
-    """Save all Q&A pairs to Interview.full_transcript"""
-    full_text = "\n".join([f"Q{i+1}: {q}\nA{i+1}: {a}" for i, (q, a) in enumerate(transcripts)])
+    """
+    Save all Q&A pairs to Interview.full_transcript
+    and clean repeated question phrases from answers.
+    """
+    cleaned_pairs = []
+
+    for i, (q, a) in enumerate(transcripts):
+        # Normalize whitespace
+        question = q.strip()
+        answer = a.strip()
+
+        # Remove question-like repetitions from the answer
+        # Example: "Can you share your experience..." → remove if it appears in the answer start
+        q_lower = re.escape(question.lower())
+        a_lower = answer.lower()
+
+        # Remove full or partial question phrases from start of answer
+        cleaned_answer = re.sub(
+            rf"^{q_lower}[:\s,.-]*", "", a_lower
+        )
+
+        # Also handle partial question fragments that match 5+ starting words
+        q_words = question.split()
+        if len(q_words) >= 5:
+            partial_pattern = re.escape(" ".join(q_words[:5]).lower())
+            cleaned_answer = re.sub(
+                rf"^{partial_pattern}[:\s,.-]*", "", cleaned_answer
+            )
+
+        # Restore capitalization of first letter
+        cleaned_answer = cleaned_answer.strip().capitalize()
+
+        cleaned_pairs.append((question, cleaned_answer))
+
+    full_text = "\n".join([f"Q{i+1}: {q}\nA{i+1}: {a}" for i, (q, a) in enumerate(cleaned_pairs)])
     interview.full_transcript = full_text.strip()
     interview.save(update_fields=["full_transcript"])
+
 
 
 # ============================================================
