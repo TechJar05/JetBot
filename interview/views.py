@@ -75,32 +75,56 @@ def _create_report_for_interview(
     # 1️⃣ Generate text-based interview analysis
     prompt = f"""
 You are an expert HR interview evaluator.
-Analyze the following interview transcription and produce STRICT JSON with keys:
-- key_strengths: array of objects: {{ "area": str, "example": str, "rating": int (1-5) }}
+
+Analyze the following interview transcription and produce STRICT JSON with these keys:
+- key_strengths: array of objects: {{ "area": str, "example": str, "rating": int (1–5) }}
 - areas_for_improvement: array of objects: {{ "area": str, "suggestions": str }}
 - ratings: object: {{
-    "technical": int (1-5),
-    "communication": int (1-5),
-    "problem_solving": int (1-5),
-    "time_mgmt": int (1-5),
+    "technical": int (1–5),
+    "communication": int (1–5),
+    "problem_solving": int (1–5),
+    "time_mgmt": int (1–5),
     "total": int
 }}
 
-🧠 Evaluation Rules:
-1. If the candidate repeats the question instead of answering it → rate all relevant areas **1 or 1.5**.
-2. If most answers are just restatements or incomplete fragments → mark communication and problem-solving low (1 or 2).
-3. If only greetings or unrelated phrases appear (e.g., "Hello", "Find out") → assign minimal total (≤ 6/20).
-4. If there are no clear technical examples → technical rating must be ≤ 2.
-5. Reward only clear, original, and context-relevant responses.
+🧠 Evaluation Rules (Balanced & Fair):
+
+1. **Repetition Rule (refined):**
+   - Count as “repetition” only when the candidate literally restates the interviewer’s question or uses 5+ identical consecutive words from it without adding new information.
+   - Do NOT penalize partial echoes or natural rephrasing (e.g., “Yes, I can tell you about my experience...”).
+   - Ignore filler or verbal noise (e.g., “uh”, “snip”, “hmm”, “er”) unless it dominates the response.
+
+2. **Answer Quality:**
+   - Evaluate based on how well answers address the questions with clarity, structure, and relevance.
+   - If a few answers are incomplete or unclear → lower related areas moderately (e.g., 3 instead of 4).
+   - Apply lowest ratings (1–2) only when **most** answers are irrelevant, incoherent, or repeated.
+
+3. **Scoring Logic:**
+   - If most answers are coherent and technical → total score should be 12–16 (average to good range).
+   - Only give total ≤10 when the majority of responses are non-answers or irrelevant.
+   - Reward clear explanations, real examples, and structured thinking.
+
+4. **Technical Evaluation:**
+   - Technical score should reflect accuracy, specificity, and practical examples (not buzzwords).
+   - If there are no clear technical examples, cap technical ≤2.
+
+5. **Communication & Problem Solving:**
+   - Communication focuses on clarity, fluency, and logical flow.
+   - Problem solving measures analytical steps and structured troubleshooting.
+   - Both can still score 3–4 even with one weak answer if others are solid.
+
+6. **Time Management:**
+   - Estimate based on how concise and focused the responses appear (avoid rambling or confusion).
 
 💡 Important:
-- Be strict and realistic. A transcript that only repeats the question should NOT get average scores.
-- Still mention 2 strengths and 2 improvement areas, even if weak (e.g., "Attempted to respond", "Needs to provide original answers").
-- Return ONLY compact JSON. No markdown, no prose.
+- Always mention **2 strengths** and **2 improvement areas**, even for weaker candidates.
+- Return **only compact JSON** (no markdown, no prose, no explanations).
+- Be strict but balanced — a few unclear answers shouldn’t drastically reduce all scores.
 
 Transcription:
 {transcription}
 """
+
 
     try:
         raw_json = generate_chat_completion(
