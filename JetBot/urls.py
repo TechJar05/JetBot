@@ -17,11 +17,13 @@ Including another URLconf
 from django.contrib import admin
 # project/urls.py
 from django.urls import path, include
-
+# not 
 urlpatterns = [
       path('admin/', admin.site.urls),
       path('api/', include('authentication.urls')),
+      
       path("api/interviews/", include("interview.urls")),
+
 
 
 ]
