@@ -155,7 +155,7 @@ REST_FRAMEWORK = {
 
 DATABASES = {
     'default': dj_database_url.parse(
-        "postgresql://jetbot_3_db:bkG6V4pYeZLAVqpjQgBt8rzpWP3gX0j0@dpg-d4kjgnre5dus73f966jg-a.oregon-postgres.render.com/jetbot_3_db_ncrq"
+        "postgresql://jetbot_4_db:SMvXMkp14XeWnIpbZoT7D0Q1sBeAcaP7@dpg-d573tijuibrs739u6log-a.singapore-postgres.render.com/jetbot_4_db"
     )
 }
 
